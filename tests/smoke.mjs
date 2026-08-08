@@ -69,6 +69,26 @@ try {
   await evaluate(`new Promise(resolve => document.readyState === 'complete' ? resolve() : addEventListener('load', resolve, {once:true}))`);
   assert(await evaluate(`typeof window.__SLIP_OUT_DEBUG__ === 'object'`), 'Debug snapshot API was not initialized.');
   assert(await evaluate(`document.getElementById('menu').classList.contains('is-visible')`), 'Main menu is not visible.');
+  assert(await evaluate(`document.querySelectorAll('[data-map]').length === 5`), 'Five-map selector was not rendered.');
+
+  const mapProfiles = [];
+  for (let mapIndex = 0; mapIndex < 5; mapIndex++) {
+    await evaluate(`document.querySelector('[data-map="${mapIndex}"]').click()`);
+    const profile = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
+    assert(profile.selectedMap === mapIndex, `Map ${mapIndex + 1} selection failed.`);
+    assert(profile.courseValidation.checkpoints.every(Boolean) && profile.courseValidation.exit, `Map ${mapIndex + 1} has an invalid checkpoint or exit surface.`);
+    mapProfiles.push(profile.obstacleCounts);
+    await evaluate(`document.getElementById('startButton').click()`);
+    await sleep(140);
+    const initialized = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
+    assert(initialized.state === 'playing' && initialized.players.length === 1, `Map ${mapIndex + 1} did not initialize a playable run.`);
+    await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'})); dispatchEvent(new KeyboardEvent('keyup', {code:'Escape'})); document.getElementById('menuButton').click()`);
+  }
+  assert(mapProfiles[1].winds >= 5 && mapProfiles[1].bumpers >= 6, 'Wind-course obstacles are missing.');
+  assert(mapProfiles[2].shockwaves >= 5, 'Pulse-course shockwaves are missing.');
+  assert(mapProfiles[3].lasers >= 6, 'Laser-course hazards are missing.');
+  assert(mapProfiles[4].winds > 0 && mapProfiles[4].shockwaves > 0 && mapProfiles[4].lasers > 0 && mapProfiles[4].bumpers > 0, 'Final course does not combine all new obstacle types.');
+  await evaluate(`document.querySelector('[data-map="0"]').click()`);
 
   await evaluate(`document.getElementById('settingsButton').click()`);
   assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'settings', 'Key settings did not open.');
@@ -109,6 +129,8 @@ try {
   assert(after.runTime > before.runTime, 'Run timer did not advance.');
   assert(after.players[0].jumpCooldown > 0, 'Jump cooldown did not activate.');
   assert(after.players[0].boostCooldown > 0, 'Boost cooldown did not activate.');
+  assert(after.players[0].jumpCooldownMax === 2.16, 'Jump cooldown was not increased to triple duration.');
+  assert(after.players[0].boostCooldownMax === 5.55, 'Boost cooldown was not increased to triple duration.');
   assert(after.players[0].hp > 0 && !after.players[0].downed, 'Player unexpectedly failed in the start area.');
 
   await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'}))`);
@@ -118,11 +140,12 @@ try {
 
   await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'})); document.getElementById('menuButton').click()`);
   assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'menu', 'Return-to-menu action failed.');
-  await evaluate(`document.querySelector('[data-players="4"]').click(); document.querySelector('[data-mode="extreme"]').click(); document.getElementById('startButton').click()`);
+  await evaluate(`document.querySelector('[data-map="4"]').click(); document.querySelector('[data-players="4"]').click(); document.querySelector('[data-mode="extreme"]').click(); document.getElementById('startButton').click()`);
   await sleep(3450);
   const coopBefore = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
   assert(coopBefore.players.length === 4, 'Four-player run was not created.');
   assert(coopBefore.selectedMode === 'extreme', 'Extreme preset was not selected.');
+  assert(coopBefore.selectedMap === 4, 'Final course was not selected for the hard-mode test.');
   assert(coopBefore.exitTimer === 8, 'Extreme goal timer was not shortened to 8 seconds.');
   await evaluate(`['KeyD','ArrowRight','KeyL','Numpad6'].forEach(code => dispatchEvent(new KeyboardEvent('keydown', {code})))`);
   await sleep(500);
@@ -131,7 +154,7 @@ try {
   coopAfter.players.forEach((player, index) => assert(player.x > coopBefore.players[index].x + 10, `P${index + 1} keyboard input failed.`));
   assert(runtimeErrors.length === 0, `Browser errors: ${runtimeErrors.join(' | ')}`);
 
-  console.log(JSON.stringify({ ok: true, soloMovement: Math.round(after.players[0].x - before.players[0].x), keyRemapping: true, healthStacks: 5, cooldowns: true, mobileControls: true, localCoopPlayers: coopAfter.players.length, extremeMode: coopAfter.selectedMode, browserErrors: 0 }));
+  console.log(JSON.stringify({ ok: true, maps: 5, mapInitialization: '5/5', newHazards: ['wind','shockwave','laser','bumper'], soloMovement: Math.round(after.players[0].x - before.players[0].x), keyRemapping: true, healthStacks: 5, tripleCooldowns: true, mobileControls: true, localCoopPlayers: coopAfter.players.length, extremeMode: coopAfter.selectedMode, browserErrors: 0 }));
 } finally {
   try { await call('Browser.close'); } catch {}
   socket.close();

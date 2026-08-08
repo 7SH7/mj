@@ -34,6 +34,18 @@
           </div>
         </div>
 
+        <div class="selector-block map-selector-block">
+          <div class="selector-label"><span>COURSE</span><small id="mapDifficulty">난이도 1 / 5</small></div>
+          <div id="mapSelector" class="map-cards" role="group" aria-label="맵 선택">
+            <button type="button" data-map="0" class="selected"><b>01</b><small>빙하</small></button>
+            <button type="button" data-map="1"><b>02</b><small>풍동</small></button>
+            <button type="button" data-map="2"><b>03</b><small>펄스</small></button>
+            <button type="button" data-map="3"><b>04</b><small>레이저</small></button>
+            <button type="button" data-map="4"><b>05</b><small>붕괴</small></button>
+          </div>
+          <p id="mapDescription" class="map-description">관성과 구조의 기본을 익히는 빙하 관문</p>
+        </div>
+
         <div class="selector-block">
           <div class="selector-label"><span>RUN TYPE</span><small>난이도 프리셋</small></div>
           <div id="modeSelector" class="mode-cards">
@@ -65,7 +77,7 @@
 
       <aside class="brief glass">
         <span class="brief-number">05</span>
-        <div><b>SECTORS</b><small>빙판, 회전봉, 분기로, 과속 구간, 붕괴 지대</small></div>
+        <div><b id="mapBriefName">빙하 관문</b><small id="mapBriefDescription">빙판, 회전봉, 분기로, 과속 구간, 붕괴 지대</small></div>
         <span class="brief-line"></span>
         <span class="brief-number">01</span>
         <div><b>RULE</b><small>쓰러진 동료의 코어를 스치면 즉시 구조</small></div>
@@ -74,6 +86,8 @@
 
     <section id="hud" class="hud" aria-live="polite">
       <div class="run-info glass">
+        <div><small>MAP</small><b id="mapValue">01</b></div>
+        <span></span>
         <div><small>SECTOR</small><b id="zoneValue">01 / 05</b></div>
         <span></span>
         <div><small>RUN TIME</small><b id="timeValue">00:00.00</b></div>
