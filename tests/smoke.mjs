@@ -106,11 +106,15 @@ try {
   assert(before.players.length === 1, 'Default single-player run was not created.');
   assert(before.exitTimer === 10, 'Normal goal timer was not shortened to 10 seconds.');
   assert(await evaluate(`document.querySelectorAll('#playerChip0 .hp i').length === 5`), 'Health HUD is not segmented into five stacks.');
+  assert(await evaluate(`parseFloat(getComputedStyle(document.querySelector('#playerChip0 .hp')).height) >= 10`), 'Health gauge is too small to read.');
+  assert(await evaluate(`parseFloat(getComputedStyle(document.querySelector('#playerChip0 .ability')).height) >= 24`), 'Ability gauge is too small to read.');
   assert(await evaluate(`document.getElementById('mobileControls').classList.contains('is-visible')`), 'Mobile control layer was not activated.');
 
   await call('Emulation.setDeviceMetricsOverride', { width: 780, height: 450, deviceScaleFactor: 1, mobile: true });
   await sleep(100);
   assert(await evaluate(`getComputedStyle(document.getElementById('mobileControls')).display === 'block'`), 'Responsive mobile controls are not visible.');
+  assert(await evaluate(`document.getElementById('mobileJump').getBoundingClientRect().width >= 100 && document.getElementById('mobileBoost').getBoundingClientRect().width >= 88`), 'Mobile jump or boost gauge button is too small to read.');
+  assert(await evaluate(`getComputedStyle(document.querySelector('#playerChip0 .ability-cooldowns')).display !== 'none'`), 'Mobile ability gauges are hidden.');
   const joystick = await evaluate(`(() => { const r = document.getElementById('joystick').getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2, radius:r.width*.25}; })()`);
   await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: joystick.x + joystick.radius, y: joystick.y, button: 'left', clickCount: 1 });
   await sleep(120);
