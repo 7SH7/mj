@@ -69,6 +69,7 @@ try {
   await evaluate(`new Promise(resolve => document.readyState === 'complete' ? resolve() : addEventListener('load', resolve, {once:true}))`);
   assert(await evaluate(`typeof window.__SLIP_OUT_DEBUG__ === 'object'`), 'Debug snapshot API was not initialized.');
   assert(await evaluate(`document.getElementById('menu').classList.contains('is-visible')`), 'Main menu is not visible.');
+  assert(await evaluate(`JSON.stringify([...document.scripts].map(script => script.getAttribute('src')).filter(Boolean)) === JSON.stringify(['js/core.js','js/input.js','js/courses.js','js/engine.js','js/renderer.js','js/main.js'])`), 'Feature scripts were not loaded in the expected dependency order.');
   assert(await evaluate(`document.querySelectorAll('[data-map]').length === 5`), 'Five-map selector was not rendered.');
 
   const mapProfiles = [];

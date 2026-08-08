@@ -8,6 +8,22 @@ PDF 기획서 v0.2를 바탕으로 만든 무설치 HTML5 관성 기반 협동 �
 
 공개 배포: [https://slip-out-games.vercel.app](https://slip-out-games.vercel.app)
 
+## 프로젝트 구조
+
+| 경로 | 역할 |
+|---|---|
+| `index.html` | 메뉴, HUD, 설정, 모바일 조작 화면 |
+| `style.css` | 전체 디자인과 반응형 레이아웃 |
+| `js/core.js` | DOM 참조, 공통 상수·유틸리티, 사운드 |
+| `js/input.js` | 키 매핑, 키보드·게임패드·모바일 입력 |
+| `js/courses.js` | 5개 코스의 바닥·장애물·테마 데이터 |
+| `js/engine.js` | 플레이어 물리, 충돌, 게임 규칙, HUD 상태 |
+| `js/renderer.js` | Canvas 월드와 장애물 렌더링 |
+| `js/main.js` | 게임 루프, UI 이벤트, 초기화 |
+| `tests/smoke.mjs` | 실제 Edge 자동 플레이 회귀 테스트 |
+
+각 스크립트는 `index.html`에서 의존성 순서대로 불러옵니다. 번들러나 별도 빌드 과정 없이 로컬 파일 실행을 유지합니다.
+
 ## 조작
 
 | 플레이어 | 이동 | 점프 | 부스터 | 브레이크 |
