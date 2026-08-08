@@ -70,21 +70,45 @@ try {
   assert(await evaluate(`typeof window.__SLIP_OUT_DEBUG__ === 'object'`), 'Debug snapshot API was not initialized.');
   assert(await evaluate(`document.getElementById('menu').classList.contains('is-visible')`), 'Main menu is not visible.');
 
+  await evaluate(`document.getElementById('settingsButton').click()`);
+  assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'settings', 'Key settings did not open.');
+  await evaluate(`document.querySelector('[data-key-action="boost"]').click(); dispatchEvent(new KeyboardEvent('keydown', {code:'KeyR'}))`);
+  assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).controls[0].boost === 'KeyR', 'Key remapping did not update the input map.');
+  assert(await evaluate(`document.getElementById('guideBoost').textContent === 'R'`), 'Remapped control label did not refresh.');
+  await evaluate(`document.getElementById('resetKeysButton').click(); document.getElementById('closeSettingsButton').click()`);
+  assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).controls[0].boost === 'ShiftLeft', 'Default key reset failed.');
+
   await evaluate(`document.getElementById('startButton').click()`);
   await sleep(3650);
   const before = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
   assert(before.state === 'playing', 'Game did not enter playing state.');
   assert(before.players.length === 1, 'Default single-player run was not created.');
+  assert(before.exitTimer === 10, 'Normal goal timer was not shortened to 10 seconds.');
+  assert(await evaluate(`document.querySelectorAll('#playerChip0 .hp i').length === 5`), 'Health HUD is not segmented into five stacks.');
+  assert(await evaluate(`document.getElementById('mobileControls').classList.contains('is-visible')`), 'Mobile control layer was not activated.');
+
+  await call('Emulation.setDeviceMetricsOverride', { width: 780, height: 450, deviceScaleFactor: 1, mobile: true });
+  await sleep(100);
+  assert(await evaluate(`getComputedStyle(document.getElementById('mobileControls')).display === 'block'`), 'Responsive mobile controls are not visible.');
+  const joystick = await evaluate(`(() => { const r = document.getElementById('joystick').getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2, radius:r.width*.25}; })()`);
+  await call('Input.dispatchMouseEvent', { type: 'mousePressed', x: joystick.x + joystick.radius, y: joystick.y, button: 'left', clickCount: 1 });
+  await sleep(120);
+  assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).mobileInput.x > .4, 'Mobile joystick input was not registered.');
+  await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x: joystick.x + joystick.radius, y: joystick.y, button: 'left', clickCount: 1 });
+  await call('Emulation.clearDeviceMetricsOverride');
+  await sleep(100);
 
   await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'KeyD'}))`);
   await sleep(900);
-  await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'KeyQ'}))`);
+  await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Space'})); dispatchEvent(new KeyboardEvent('keydown', {code:'ShiftLeft'}))`);
   await sleep(350);
-  await evaluate(`dispatchEvent(new KeyboardEvent('keyup', {code:'KeyQ'})); dispatchEvent(new KeyboardEvent('keyup', {code:'KeyD'}))`);
+  await evaluate(`dispatchEvent(new KeyboardEvent('keyup', {code:'Space'})); dispatchEvent(new KeyboardEvent('keyup', {code:'ShiftLeft'})); dispatchEvent(new KeyboardEvent('keyup', {code:'KeyD'}))`);
   await sleep(150);
   const after = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
   assert(after.players[0].x > before.players[0].x + 40, 'Inertia movement did not advance the player.');
   assert(after.runTime > before.runTime, 'Run timer did not advance.');
+  assert(after.players[0].jumpCooldown > 0, 'Jump cooldown did not activate.');
+  assert(after.players[0].boostCooldown > 0, 'Boost cooldown did not activate.');
   assert(after.players[0].hp > 0 && !after.players[0].downed, 'Player unexpectedly failed in the start area.');
 
   await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'}))`);
@@ -99,6 +123,7 @@ try {
   const coopBefore = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
   assert(coopBefore.players.length === 4, 'Four-player run was not created.');
   assert(coopBefore.selectedMode === 'extreme', 'Extreme preset was not selected.');
+  assert(coopBefore.exitTimer === 8, 'Extreme goal timer was not shortened to 8 seconds.');
   await evaluate(`['KeyD','ArrowRight','KeyL','Numpad6'].forEach(code => dispatchEvent(new KeyboardEvent('keydown', {code})))`);
   await sleep(500);
   await evaluate(`['KeyD','ArrowRight','KeyL','Numpad6'].forEach(code => dispatchEvent(new KeyboardEvent('keyup', {code})))`);
@@ -106,7 +131,7 @@ try {
   coopAfter.players.forEach((player, index) => assert(player.x > coopBefore.players[index].x + 10, `P${index + 1} keyboard input failed.`));
   assert(runtimeErrors.length === 0, `Browser errors: ${runtimeErrors.join(' | ')}`);
 
-  console.log(JSON.stringify({ ok: true, soloMovement: Math.round(after.players[0].x - before.players[0].x), localCoopPlayers: coopAfter.players.length, extremeMode: coopAfter.selectedMode, browserErrors: 0 }));
+  console.log(JSON.stringify({ ok: true, soloMovement: Math.round(after.players[0].x - before.players[0].x), keyRemapping: true, healthStacks: 5, cooldowns: true, mobileControls: true, localCoopPlayers: coopAfter.players.length, extremeMode: coopAfter.selectedMode, browserErrors: 0 }));
 } finally {
   try { await call('Browser.close'); } catch {}
   socket.close();
