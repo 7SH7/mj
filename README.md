@@ -6,6 +6,8 @@ PDF 기획서 v0.2를 바탕으로 만든 무설치 HTML5 관성 기반 협동 �
 
 `start_game.bat`을 더블 클릭하거나 `index.html`을 최신 Edge/Chrome에서 여세요. 별도 설치나 빌드는 필요 없습니다.
 
+공개 배포: [https://slip-out-games.vercel.app](https://slip-out-games.vercel.app)
+
 ## 조작
 
 | 플레이어 | 이동 | 점프 | 부스터 | 브레이크 |

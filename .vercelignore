@@ -1,0 +1,7 @@
+.git
+.omc
+.vercel
+tests
+*.pdf
+README.md
+start_game.bat
