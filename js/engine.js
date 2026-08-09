@@ -34,17 +34,19 @@ function isHole(x, y) {
   let runTime = 0;
   let deaths = 0;
   let rescues = 0;
+  let reviveChoiceSequence = 0;
   let checkpointIndex = 0;
   let startCountdown = 0;
   let wipeTimer = 0;
   let exitActive = false;
-  let exitTimer = 10;
+  let exitTimer = 2;
   let escapeOrder = [];
   let toastTimer = 0;
   let hudTimer = 0;
   let shake = 0;
   let lastTimestamp = performance.now();
   let resultData = null;
+  let activeRunId = '';
   const camera = { x: 620, y: 800, zoom: 1 };
 
   function createPlayer(id, spawn) {
@@ -52,8 +54,10 @@ function isHole(x, y) {
       id, color: PLAYER_COLORS[id], x: spawn.x, y: spawn.y + (id - (selectedPlayers - 1) / 2) * 52,
       vx: 0, vy: 0, r: 19, z: 0, vz: 0, hp: 100, invulnerable: .8,
       brakeCharges: selectedMode === 'extreme' ? 0 : 2, brakeRegen: 0, brakeTimer: 0,
-      jumpCooldown: 0, jumpCooldownMax: 2.16, boostCooldown: 0, boostCooldownMax: 5.55,
+      jumpCooldown: 0, jumpCooldownMax: 2, boostCooldown: 0, boostCooldownMax: 5,
       padCooldown: 0, downed: false, escaped: false, finishPlace: null, finishTime: null,
+      deathCount: 0,
+      awaitingReviveChoice: false, reviveRescuerId: null, reviveQueuedAt: null, reviveChoice: null,
       coreX: 0, coreY: 0, lastGroundX: spawn.x, lastGroundY: spawn.y,
       trail: [], previousInput: {}, exitHold: 0, zone: 0
     };
@@ -61,7 +65,7 @@ function isHole(x, y) {
 
   function resetDynamics() {
     projectiles = [];
-    enemies = currentCourse.enemies.map((enemy, index) => ({
+    enemies = currentCourse.enemies.filter(enemy => !isCheckpointSafe(enemy.x, enemy.y)).map((enemy, index) => ({
       ...enemy, homeX: enemy.x, homeY: enemy.y, vx: 0, vy: 0,
       r: 30 + Math.min(6, Math.floor(selectedMap / 2) + (index % 2)), zone: getZone(enemy.x)
     }));
@@ -71,9 +75,10 @@ function isHole(x, y) {
 
   function startGame() {
     sound.init();
-    configureCourse(selectedMap);
+    configureSelectedCourse();
     state = 'playing';
-    worldTime = 0; runTime = 0; deaths = 0; rescues = 0; checkpointIndex = 0;
+    activeRunId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    worldTime = 0; runTime = 0; deaths = 0; rescues = 0; reviveChoiceSequence = 0; checkpointIndex = 0;
     wipeTimer = 0; exitActive = false; exitTimer = exitDuration(); escapeOrder = []; particles = []; resultData = null;
     players = Array.from({ length: selectedPlayers }, (_, i) => createPlayer(i, checkpoints[0]));
     resetDynamics();
@@ -101,6 +106,10 @@ function isHole(x, y) {
   }
 
   function togglePause() {
+    if (window.OnlineSession?.isOnlineRun()) {
+      showToast('온라인 런에서는 일시정지를 사용할 수 없습니다.');
+      return;
+    }
     if (state === 'playing') { state = 'paused'; ui.pause.classList.add('is-visible'); }
     else if (state === 'paused') { state = 'playing'; ui.pause.classList.remove('is-visible'); lastTimestamp = performance.now(); }
     updateMobileVisibility();
@@ -146,10 +155,15 @@ function isHole(x, y) {
   function downPlayer(player, reason = '충돌') {
     if (player.downed || player.escaped) return;
     player.downed = true;
+    player.awaitingReviveChoice = false;
+    player.reviveRescuerId = null;
+    player.reviveQueuedAt = null;
+    player.reviveChoice = null;
     player.coreX = player.lastGroundX;
     player.coreY = player.lastGroundY;
     player.vx = player.vy = 0;
     deaths++;
+    player.deathCount++;
     shake = Math.max(shake, 15);
     spawnParticles(player.coreX, player.coreY, player.color, 28, 230);
     sound.down();
@@ -162,17 +176,74 @@ function isHole(x, y) {
     }
   }
 
-  function revivePlayer(player, rescuer) {
+  function pendingRevivePlayers() {
+    return players
+      .filter(player => player.downed && player.awaitingReviveChoice)
+      .sort((a, b) => a.reviveQueuedAt - b.reviveQueuedAt || a.id - b.id);
+  }
+
+  function promptReviveChoice(player) {
+    showCenter('REVIVE CHOICE', `P${player.id + 1} · I 체크포인트 / O 쓰러진 위치`, 4.5, player.color);
+    showToast(`P${player.id + 1} 부활 위치 선택: I = 최신 체크포인트 · O = 쓰러진 위치`, 4.5);
+  }
+
+  function beginReviveChoice(player, rescuer) {
+    if (!player.downed || player.escaped || player.awaitingReviveChoice) return;
+    if (selectedMode === 'extreme') {
+      revivePlayer(player, rescuer, 'start');
+      return;
+    }
+    const hadPendingChoice = pendingRevivePlayers().length > 0;
+    player.awaitingReviveChoice = true;
+    player.reviveRescuerId = rescuer.id;
+    player.reviveQueuedAt = ++reviveChoiceSequence;
+    player.reviveChoice = null;
+    prepareReviveChoiceInput();
+    sound.tone(440, .08, 'sine', .018, 660);
+    if (!hadPendingChoice) promptReviveChoice(player);
+  }
+
+  function consumeReviveChoiceKey(code) {
+    if (state !== 'playing' || selectedMode === 'extreme' || (code !== 'KeyI' && code !== 'KeyO')) return false;
+    if (window.OnlineSession?.isGuestPlaying()) return window.OnlineSession.sendReviveChoice(code);
+    const player = window.OnlineSession?.isHostPlaying() ? players[0]?.awaitingReviveChoice && players[0] : pendingRevivePlayers()[0];
+    if (!player) return false;
+    const rescuer = players.find(candidate => candidate.id === player.reviveRescuerId);
+    revivePlayer(player, rescuer, code === 'KeyI' ? 'checkpoint' : 'core');
+    return true;
+  }
+
+  function revivePlayer(player, rescuer, choice = 'core') {
+    const resolvedChoice = selectedMode === 'extreme' ? 'start' : choice;
+    const spawn = resolvedChoice === 'start'
+      ? checkpoints[0]
+      : resolvedChoice === 'checkpoint'
+        ? checkpoints[checkpointIndex]
+        : { x: player.coreX, y: player.coreY };
     player.downed = false;
-    player.x = player.coreX; player.y = player.coreY;
+    player.awaitingReviveChoice = false;
+    player.reviveChoice = resolvedChoice;
+    player.x = spawn.x;
+    player.y = spawn.y + (resolvedChoice === 'core' ? 0 : (player.id - (players.length - 1) / 2) * 34);
     player.lastGroundX = player.x; player.lastGroundY = player.y;
-    player.vx = rescuer.vx * .12; player.vy = rescuer.vy * .12;
+    player.vx = resolvedChoice === 'core' ? (rescuer?.vx || 0) * .12 : 0;
+    player.vy = resolvedChoice === 'core' ? (rescuer?.vy || 0) * .12 : 0;
     player.hp = 100; player.z = 0; player.vz = 0;
     player.invulnerable = selectedMode === 'extreme' ? 0 : .18;
+    player.reviveRescuerId = null;
+    player.reviveQueuedAt = null;
+    player.previousInput = {};
+    wipeTimer = 0;
     rescues++;
     spawnParticles(player.x, player.y, player.color, 30, 200);
     sound.rescue();
-    showCenter('RESCUE!', `P${rescuer.id + 1} → P${player.id + 1}`, .75, player.color);
+    const locationLabel = resolvedChoice === 'start' ? '출발 지점' : resolvedChoice === 'checkpoint' ? '최신 체크포인트' : '쓰러진 위치';
+    showCenter(selectedMode === 'extreme' ? 'HARD REVIVE' : 'RESCUE!', `P${player.id + 1} · ${locationLabel}`, 1.1, player.color);
+    showToast(`P${player.id + 1} ${locationLabel}에서 부활`, 1.3);
+    const next = pendingRevivePlayers()[0];
+    if (next) setTimeout(() => {
+      if (state === 'playing' && next.downed && next.awaitingReviveChoice) promptReviveChoice(next);
+    }, 1150);
   }
 
   function restartFromCheckpoint() {
@@ -185,6 +256,7 @@ function isHole(x, y) {
       p.invulnerable = 1; p.lastGroundX = p.x; p.lastGroundY = p.y; p.trail.length = 0;
       p.brakeCharges = selectedMode === 'extreme' ? 0 : 2; p.brakeRegen = 0; p.exitHold = 0;
       p.jumpCooldown = p.boostCooldown = 0; p.finishPlace = p.finishTime = null; p.previousInput = {};
+      p.awaitingReviveChoice = false; p.reviveRescuerId = null; p.reviveQueuedAt = null; p.reviveChoice = null;
     });
     escapeOrder = [];
     wipeTimer = 0; exitActive = false; exitTimer = exitDuration();
@@ -201,9 +273,13 @@ function isHole(x, y) {
     showCenter(`SECTOR ${String(index + 1).padStart(2, '0')}`, currentCourse.zoneNames[index], 1.35, currentCourse.accent);
   }
 
+  function isCheckpointSafe(x, y) {
+    return checkpoints.some(point => dist(x, y, point.x, point.y) <= 170);
+  }
+
   function damagePlayer(player, amount, nx, ny, force = 210) {
-    if (player.invulnerable > 0 || player.downed || player.escaped || player.z > 30) return;
-    player.hp -= amount;
+    if (player.invulnerable > 0 || player.downed || player.escaped || player.z > 30 || isCheckpointSafe(player.x, player.y)) return;
+    player.hp = Math.max(0, player.hp - 20);
     player.invulnerable = .48;
     player.vx += nx * force; player.vy += ny * force;
     shake = Math.max(shake, 8);
@@ -399,7 +475,7 @@ function isHole(x, y) {
     for (const target of players) {
       if (!target.downed) continue;
       const rescueRadius = selectedMode === 'extreme' ? 34 : 41;
-      if (dist(player.x, player.y, target.coreX, target.coreY) < player.r + rescueRadius) revivePlayer(target, player);
+      if (dist(player.x, player.y, target.coreX, target.coreY) < player.r + rescueRadius) beginReviveChoice(target, player);
     }
 
     for (let i = 1; i < checkpoints.length; i++) {
@@ -411,11 +487,12 @@ function isHole(x, y) {
     if (inExit && !exitActive) {
       exitActive = true; exitTimer = exitDuration();
       sound.checkpoint();
-      showCenter('EXIT OPEN', `${exitTimer}초 안에 장치로 집결하세요`, 1.4, '#a6ff68');
+      showCenter('EXIT SYNC', `장치 위에서 ${exitDuration()}초 유지하세요`, 1.4, '#a6ff68');
     }
     if (inExit && exitActive) {
       player.exitHold += dt;
-      if (player.exitHold >= .8) escapePlayer(player);
+      exitTimer = Math.max(0, exitDuration() - player.exitHold);
+      if (player.exitHold >= exitDuration()) escapePlayer(player);
     } else player.exitHold = 0;
 
     player.trail.push({ x: player.x, y: player.y, life: 1, z: player.z });
@@ -478,7 +555,7 @@ function isHole(x, y) {
     for (const enemy of enemies) {
       let target = null, best = 520;
       for (const player of players) {
-        if (player.downed || player.escaped) continue;
+        if (player.downed || player.escaped || isCheckpointSafe(player.x, player.y)) continue;
         const d = dist(enemy.x, enemy.y, player.x, player.y);
         if (d < best) { best = d; target = player; }
       }
@@ -492,7 +569,9 @@ function isHole(x, y) {
       if (speed > max) { enemy.vx *= max / speed; enemy.vy *= max / speed; }
       enemy.vx *= Math.exp(-1.4 * dt); enemy.vy *= Math.exp(-1.4 * dt);
       enemy.x += enemy.vx * dt; enemy.y += enemy.vy * dt;
-      if (!surfaceAt(enemy.x, enemy.y)) { enemy.x = enemy.homeX; enemy.y = enemy.homeY; enemy.vx = enemy.vy = 0; }
+      if (!surfaceAt(enemy.x, enemy.y) || isCheckpointSafe(enemy.x, enemy.y)) {
+        enemy.x = enemy.homeX; enemy.y = enemy.homeY; enemy.vx = enemy.vy = 0;
+      }
     }
     for (const tile of collapseTiles) {
       if (tile.state === 'idle') {
@@ -545,19 +624,6 @@ function isHole(x, y) {
       updateCamera(dt); updateHud(dt); return;
     }
     for (const player of players) updatePlayer(player, dt);
-    if (exitActive) {
-      exitTimer -= dt;
-      if (exitTimer <= 0) {
-        if (players.some(p => p.escaped)) finishRun(true);
-        else {
-          exitActive = false; exitTimer = exitDuration();
-          showCenter('EXIT FAILED', '최종 안전 구역에서 재정렬', 1.2, '#ff4d78');
-          checkpointIndex = Math.max(checkpointIndex, 4);
-          players.forEach(p => { if (!p.escaped) { p.downed = true; } });
-          wipeTimer = 1.25;
-        }
-      }
-    }
     updateCamera(dt);
     updateHud(dt);
   }
@@ -590,10 +656,13 @@ function isHole(x, y) {
     const leader = players.filter(p => !p.downed && !p.escaped).reduce((best, p) => !best || p.x > best.x ? p : best, null);
     const zone = leader ? getZone(leader.x) : 4;
     ui.zone.textContent = `${String(zone + 1).padStart(2, '0')} / 05`;
-    ui.mapValue.textContent = String(selectedMap + 1).padStart(2, '0');
+    ui.mapValue.textContent = selectedCustomMap ? 'CM' : String(selectedMap + 1).padStart(2, '0');
     ui.time.textContent = formatTime(runTime);
     ui.mode.textContent = selectedMode === 'extreme' ? 'EXTREME ×1.87' : 'NORMAL';
-    const objectiveText = exitActive ? `탈출 장치 폐쇄까지 ${Math.max(0, exitTimer).toFixed(1)}초` : currentCourse.objectives[zone];
+    const syncingPlayer = players.find(player => !player.downed && !player.escaped && player.exitHold > 0);
+    const objectiveText = syncingPlayer
+      ? `P${syncingPlayer.id + 1} 탈출 동기화 ${Math.max(0, exitDuration() - syncingPlayer.exitHold).toFixed(1)}초`
+      : exitActive ? `최종 장치 위에서 ${exitDuration()}초 유지하세요` : currentCourse.objectives[zone];
     ui.objective.querySelector('b').textContent = objectiveText;
     players.forEach(p => {
       const chip = $(`playerChip${p.id}`);
@@ -604,7 +673,7 @@ function isHole(x, y) {
         segment.classList.toggle('partial', fill > 0 && fill < .999);
         segment.style.setProperty('--fill', `${fill * 100}%`);
       });
-      const stateLabel = p.escaped ? `#${p.finishPlace} FINISH` : p.downed ? 'SIGNAL LOST' : p.invulnerable > 0 ? 'SYNCING' : 'ACTIVE';
+      const stateLabel = p.escaped ? `#${p.finishPlace} FINISH` : p.awaitingReviveChoice ? 'I:CHECK / O:CORE' : p.downed ? 'SIGNAL LOST' : p.invulnerable > 0 ? 'SYNCING' : 'ACTIVE';
       chip.querySelector('.chip-state').textContent = stateLabel;
       const chargeEls = chip.querySelectorAll('.charges i');
       chargeEls.forEach((el, i) => el.classList.toggle('on', i < p.brakeCharges));
@@ -620,7 +689,7 @@ function isHole(x, y) {
       });
       chip.style.opacity = p.escaped ? '.45' : '1';
     });
-    const p1 = players[0];
+    const p1 = players[window.OnlineSession?.isGuestPlaying() ? window.OnlineSession.localSlot() : 0];
     if (p1) {
       const mobileCooldowns = [
         [$('mobileJump'), p1.jumpCooldown, p1.jumpCooldownMax],
@@ -669,6 +738,7 @@ function isHole(x, y) {
       <div class="rank-row" style="--rank-color:${player.finishPlace ? '#dfff73' : '#718899'};--player-color:${player.color}">
         <span class="place">${player.finishPlace ? `#${player.finishPlace}` : '—'}</span>
         <span class="racer">P${player.id + 1}</span>
+        <span class="rank-deaths">사망 ${player.deathCount}회</span>
         <span>${player.finishTime == null ? '미도착' : formatTime(player.finishTime)}</span>
       </div>`).join('');
     ui.record.textContent = isRecord ? 'NEW TEAM RECORD' : `BEST ${oldBest.toLocaleString('ko-KR')}`;
@@ -676,4 +746,30 @@ function isHole(x, y) {
     ui.results.classList.add('is-visible');
     updateMobileVisibility();
     sound.win();
+    if (full && !selectedCustomMap) window.OnlineSession?.recordFullClear(activeRunId);
+    window.OnlineSession?.onRunFinished(resultData);
   }
+
+  function reviveDebugSnapshot() {
+    return {
+      checkpointIndex,
+      pendingOrder: pendingRevivePlayers().map(player => player.id),
+      players: players.map(player => ({
+        playerId: player.id,
+        awaitingChoice: player.awaitingReviveChoice,
+        rescuerId: player.reviveRescuerId,
+        queuedAt: player.reviveQueuedAt,
+        choice: player.reviveChoice,
+        deathPosition: { x: player.coreX, y: player.coreY }
+      }))
+    };
+  }
+
+  // main.js installs the base diagnostic object later in the same page load.
+  setTimeout(() => {
+    const debug = window.__SLIP_OUT_DEBUG__;
+    if (!debug?.snapshot || debug.reviveChoiceWrapped) return;
+    const baseSnapshot = debug.snapshot;
+    debug.snapshot = () => ({ ...baseSnapshot(), reviveChoices: reviveDebugSnapshot() });
+    debug.reviveChoiceWrapped = true;
+  }, 0);

@@ -2,6 +2,7 @@
 
 // SLIP OUT: input layer
 const keys = new Set();
+  const reviveChoiceHeldKeys = new Set();
   const mobileInput = { x: 0, y: 0, jump: false, boost: false, brake: false };
   let remapTarget = null;
   let keySettingsPlayer = 0;
@@ -68,27 +69,57 @@ const keys = new Set();
       else assignControlKey(event.code);
       return;
     }
+    if (reviveChoiceHeldKeys.has(event.code)) {
+      event.preventDefault();
+      keys.delete(event.code);
+      return;
+    }
+    if (!event.repeat && consumeReviveChoiceKey(event.code)) {
+      event.preventDefault();
+      keys.delete(event.code);
+      reviveChoiceHeldKeys.add(event.code);
+      return;
+    }
     if (isGameplayKey(event.code) && (state === 'playing' || state === 'paused')) event.preventDefault();
     keys.add(event.code);
     if (event.code === 'Escape' && (state === 'playing' || state === 'paused')) togglePause();
     else if (event.code === 'Escape' && state === 'settings') closeSettings();
-    if (event.code === 'Enter' && state === 'menu') startGame();
-    else if (event.code === 'Enter' && state === 'results') startGame();
+    if (event.code === 'Enter' && state === 'menu') { selectedPlayers = 1; startGame(); }
+    else if (event.code === 'Enter' && state === 'results') {
+      if (window.OnlineSession?.isOnlineRun()) window.OnlineSession.handleAgain();
+      else startGame();
+    }
   });
-  addEventListener('keyup', (event) => keys.delete(event.code));
-  addEventListener('blur', () => keys.clear());
+  addEventListener('keyup', (event) => {
+    keys.delete(event.code);
+    reviveChoiceHeldKeys.delete(event.code);
+  });
+  addEventListener('blur', () => {
+    keys.clear();
+    reviveChoiceHeldKeys.clear();
+  });
+
+  function prepareReviveChoiceInput() {
+    for (const code of ['KeyI', 'KeyO']) {
+      if (keys.has(code)) reviveChoiceHeldKeys.add(code);
+      keys.delete(code);
+    }
+  }
 
   function readInput(player) {
-    const map = controlMaps[player.id];
-    let x = (keys.has(map.right) ? 1 : 0) - (keys.has(map.left) ? 1 : 0);
-    let y = (keys.has(map.down) ? 1 : 0) - (keys.has(map.up) ? 1 : 0);
-    let jump = keys.has(map.jump), boost = keys.has(map.boost), brake = keys.has(map.brake);
-    if (player.id === 0) {
+    const remote = window.OnlineSession?.getRemoteInput(player.id);
+    const map = controlMaps[player.id] || controlMaps[0];
+    let x = remote ? remote.x : (keys.has(map.right) ? 1 : 0) - (keys.has(map.left) ? 1 : 0);
+    let y = remote ? remote.y : (keys.has(map.down) ? 1 : 0) - (keys.has(map.up) ? 1 : 0);
+    let jump = remote ? remote.jump : keys.has(map.jump);
+    let boost = remote ? remote.boost : keys.has(map.boost);
+    let brake = remote ? remote.brake : keys.has(map.brake);
+    if (!remote && player.id === 0) {
       if (Math.hypot(mobileInput.x, mobileInput.y) > Math.hypot(x, y)) { x = mobileInput.x; y = mobileInput.y; }
       jump ||= mobileInput.jump; boost ||= mobileInput.boost; brake ||= mobileInput.brake;
     }
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = pads[player.id];
+    const pad = remote ? null : pads[player.id];
     if (pad) {
       const dead = .2;
       const ax = Math.abs(pad.axes[0] || 0) > dead ? pad.axes[0] : 0;

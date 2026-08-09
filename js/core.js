@@ -51,7 +51,7 @@ const canvas = document.getElementById('game');
   }
   let controlMaps = loadControlMaps();
   const isGameplayKey = (code) => code === 'Escape' || controlMaps.some(map => Object.values(map).includes(code));
-  const exitDuration = () => selectedMode === 'extreme' ? 8 : 10;
+  const exitDuration = () => 2;
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const lerp = (a, b, t) => a + (b - a) * t;

@@ -25,12 +25,10 @@
         <p class="tagline">멈추려 하지 마세요. <strong>함께 빠져나가세요.</strong></p>
 
         <div class="selector-block">
-          <div class="selector-label"><span>PLAYERS</span><small>로컬 1–4인</small></div>
-          <div id="playerSelector" class="segmented" role="group" aria-label="플레이어 수">
-            <button type="button" data-players="1" class="selected">1</button>
-            <button type="button" data-players="2">2</button>
-            <button type="button" data-players="3">3</button>
-            <button type="button" data-players="4">4</button>
+          <div class="selector-label"><span>PLAY</span><small>싱글 · 온라인 협동</small></div>
+          <div class="play-actions">
+            <button id="channelButton" class="channel-button" type="button"><span>◈</span><b>채널 접속하기</b><small>공개방 또는 4자리 코드</small></button>
+            <button id="customMapsButton" class="custom-map-button" type="button"><span>◇</span><b>커스텀 맵</b><small id="customUnlockLabel">3라운드 클리어 후 해금</small></button>
           </div>
         </div>
 
@@ -134,6 +132,80 @@
       </div>
     </section>
 
+    <section id="channelScreen" class="screen modal-screen" aria-labelledby="channelTitle">
+      <div class="channel-card glass">
+        <div class="modal-heading">
+          <div><p class="eyebrow">ONLINE CHANNEL</p><h2 id="channelTitle">채널 접속</h2></div>
+          <button id="closeChannelButton" class="modal-close" type="button" aria-label="채널 닫기">×</button>
+        </div>
+        <div class="network-status"><i id="networkStatusDot"></i><span id="networkStatusText">온라인 모듈 준비 중</span></div>
+
+        <div id="channelBrowser" class="channel-view">
+          <div class="channel-toolbar">
+            <button id="createRoomButton" class="secondary-button" type="button">＋ 방 만들기</button>
+            <button id="findRoomButton" class="secondary-button" type="button">⌕ 방 찾기</button>
+            <button id="refreshRoomsButton" class="icon-button" type="button" aria-label="방 목록 새로고침">↻</button>
+          </div>
+          <div class="room-list-heading"><b>PUBLIC ROOMS</b><small>현재 접속 가능한 공개방</small></div>
+          <div id="publicRoomList" class="public-room-list"><p class="empty-room-list">연결 중입니다…</p></div>
+        </div>
+
+        <form id="createRoomForm" class="channel-view is-hidden">
+          <button class="back-button" type="button" data-channel-back>← 공개방 목록</button>
+          <div class="room-code-preview"><small>새 방 코드</small><b id="newRoomCode">----</b></div>
+          <label class="field-label">최대 인원
+            <select id="roomCapacity"><option value="2">2명</option><option value="3">3명</option><option value="4" selected>4명</option></select>
+          </label>
+          <fieldset class="visibility-choice"><legend>공개 설정</legend>
+            <label><input type="radio" name="roomVisibility" value="public" checked><span><b>PUBLIC</b><small>공개방 목록에 표시</small></span></label>
+            <label><input type="radio" name="roomVisibility" value="private"><span><b>PRIVATE</b><small>코드로만 입장</small></span></label>
+          </fieldset>
+          <p id="createMapLabel" class="selected-map-label">기본 코스 · 빙하 관문</p>
+          <button class="primary-button" type="submit"><span>방 열기</span><kbd>HOST</kbd></button>
+        </form>
+
+        <form id="findRoomForm" class="channel-view is-hidden">
+          <button class="back-button" type="button" data-channel-back>← 공개방 목록</button>
+          <label class="field-label code-field">4자리 방 코드
+            <input id="roomCodeInput" type="text" maxlength="4" autocomplete="off" spellcheck="false" inputmode="text" placeholder="AB12" required>
+          </label>
+          <p class="form-help">대문자·숫자 4자리를 입력하세요. 비공개방도 입장할 수 있습니다.</p>
+          <button class="primary-button" type="submit"><span>채널 입장</span><kbd>JOIN</kbd></button>
+        </form>
+
+        <div id="roomLobby" class="channel-view is-hidden">
+          <div class="lobby-code"><small>ROOM CODE</small><button id="copyRoomCodeButton" type="button" title="코드 복사">----</button><span id="roomVisibilityLabel">PUBLIC</span></div>
+          <p id="lobbyMapName" class="lobby-map-name">빙하 관문</p>
+          <div id="lobbyPlayers" class="lobby-players"></div>
+          <p id="lobbyHint" class="form-help">다른 플레이어를 기다리는 중입니다.</p>
+          <button id="hostStartButton" class="primary-button" type="button"><span>온라인 런 시작</span><kbd>HOST</kbd></button>
+          <button id="leaveRoomButton" class="text-button" type="button">방 나가기</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="customMapsScreen" class="screen modal-screen" aria-labelledby="customMapsTitle">
+      <div class="custom-maps-card glass">
+        <div class="modal-heading">
+          <div><p class="eyebrow">CUSTOM LAB</p><h2 id="customMapsTitle">커스텀 맵</h2></div>
+          <button id="closeCustomMapsButton" class="modal-close" type="button" aria-label="커스텀 맵 닫기">×</button>
+        </div>
+        <div id="customLocked" class="custom-locked">
+          <span>◇</span><b>커스텀 랩 잠김</b><p>기본 맵에서 총 3라운드를 완주하면 맵 생성기가 열립니다.</p><em id="customClearProgress">0 / 3 CLEAR</em>
+        </div>
+        <div id="customUnlocked" class="is-hidden">
+          <div class="custom-toolbar"><p>저장된 커스텀 맵</p><button id="showCustomCreatorButton" class="secondary-button" type="button">＋ 새 맵 생성</button></div>
+          <form id="customMapForm" class="custom-create-form is-hidden">
+            <label class="field-label">맵 이름<input id="customMapName" maxlength="18" placeholder="나의 탈출 코스" required></label>
+            <label class="field-label">난이도<select id="customMapDifficulty"><option value="1">1 · 연습</option><option value="2">2 · 보통</option><option value="3" selected>3 · 어려움</option><option value="4">4 · 극한</option><option value="5">5 · 혼돈</option></select></label>
+            <label class="field-label">시드<input id="customMapSeed" maxlength="12" placeholder="자동 생성"></label>
+            <div class="custom-form-actions"><button id="cancelCustomCreatorButton" class="text-button" type="button">취소</button><button class="primary-button" type="submit">맵 생성</button></div>
+          </form>
+          <div id="customMapList" class="custom-map-list"></div>
+        </div>
+      </div>
+    </section>
+
     <section id="resultScreen" class="screen modal-screen" aria-labelledby="resultTitle">
       <div class="result-card glass">
         <p id="resultEyebrow" class="eyebrow">RUN COMPLETE</p>
@@ -167,8 +239,11 @@
   <script src="js/core.js"></script>
   <script src="js/input.js"></script>
   <script src="js/courses.js"></script>
+  <script src="js/custom-maps.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/renderer.js"></script>
+  <script src="vendor/trystero-0.25.3.js"></script>
+  <script src="js/online.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

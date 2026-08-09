@@ -219,8 +219,10 @@ const BASE_FLOORS = [
   let winds = [], shockwaves = [], lasers = [], bumpers = [];
   let exit = { ...BASE_EXIT };
   let currentCourse = COURSE_PRESETS[0];
+  let selectedCustomMap = null;
 
   function configureCourse(index) {
+    selectedCustomMap = null;
     selectedMap = clamp(Number(index) || 0, 0, COURSE_PRESETS.length - 1);
     currentCourse = COURSE_PRESETS[selectedMap];
     const extras = COURSE_HAZARDS[selectedMap];
@@ -244,4 +246,52 @@ const BASE_FLOORS = [
     if (ui.mapBriefName) ui.mapBriefName.textContent = currentCourse.name.toUpperCase();
     if (ui.mapBriefDescription) ui.mapBriefDescription.textContent = currentCourse.brief;
     if (ui.mapValue) ui.mapValue.textContent = String(selectedMap + 1).padStart(2, '0');
+  }
+
+  function configureCustomCourse(mapOrCode) {
+    const generated = CustomMapStore.generate(mapOrCode);
+    const map = generated.map;
+    const difficultyIndex = clamp(map.difficulty - 1, 0, COURSE_PRESETS.length - 1);
+    const preset = COURSE_PRESETS[difficultyIndex];
+    const hazard = generated.hazards;
+    selectedMap = difficultyIndex;
+    selectedCustomMap = map;
+    currentCourse = {
+      ...preset,
+      name: map.name,
+      short: 'CUSTOM',
+      difficulty: map.difficulty,
+      accent: ['#54f5ff', '#79f6ca', '#ffd45c', '#ff8c5c', '#ff4d78'][difficultyIndex],
+      description: `시드 ${map.seed} · 난이도 ${map.difficulty} 커스텀 코스`,
+      brief: `공유 코드 ${generated.code} · 절차 생성 장애물`,
+      enemies: copyList(generated.enemies),
+      objectives: [...preset.objectives]
+    };
+    floors = copyList(COURSE_FLOORS[generated.layout.floorPresetIndex]);
+    holes = copyList(COURSE_HOLES[generated.layout.holePresetIndex]);
+    checkpoints = copyList(BASE_CHECKPOINTS);
+    boostPads = copyList([...BASE_BOOST_PADS, ...hazard.boostPads]);
+    slowPads = copyList([...BASE_SLOW_PADS, ...hazard.slowPads]);
+    pillars = copyList([...BASE_PILLARS, ...hazard.pillars]);
+    rotors = copyList([...BASE_ROTORS, ...hazard.rotors]);
+    movers = copyList([...BASE_MOVERS, ...hazard.movers]);
+    gates = copyList([...BASE_GATES, ...hazard.gates]);
+    launchers = copyList([...BASE_LAUNCHERS, ...hazard.launchers]);
+    collapseTiles = copyList([...BASE_COLLAPSE_TILES, ...hazard.collapse]);
+    winds = copyList(hazard.winds);
+    shockwaves = copyList(hazard.shockwaves);
+    lasers = copyList(hazard.lasers);
+    bumpers = copyList(hazard.bumpers);
+    exit = { ...BASE_EXIT };
+    document.documentElement.style.setProperty('--map-accent', currentCourse.accent);
+    if (ui.mapDifficulty) ui.mapDifficulty.textContent = `CUSTOM · 난이도 ${map.difficulty}`;
+    if (ui.mapDescription) ui.mapDescription.textContent = currentCourse.description;
+    if (ui.mapBriefName) ui.mapBriefName.textContent = map.name.toUpperCase();
+    if (ui.mapBriefDescription) ui.mapBriefDescription.textContent = currentCourse.brief;
+    if (ui.mapValue) ui.mapValue.textContent = 'CM';
+    return generated;
+  }
+
+  function configureSelectedCourse() {
+    return selectedCustomMap ? configureCustomCourse(selectedCustomMap) : configureCourse(selectedMap);
   }

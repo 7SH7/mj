@@ -1,2 +1,6 @@
 .vercel
 *.pdf
+.edge-*
+.npm-cache/
+.vendor-build/
+trystero-*.tgz
