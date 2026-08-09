@@ -57,7 +57,7 @@ function isHole(x, y) {
       jumpCooldown: 0, jumpCooldownMax: 2, boostCooldown: 0, boostCooldownMax: 5,
       padCooldown: 0, downed: false, escaped: false, finishPlace: null, finishTime: null,
       deathCount: 0,
-      awaitingReviveChoice: false, reviveRescuerId: null, reviveQueuedAt: null, reviveChoice: null,
+      awaitingReviveChoice: false, reviveRescuerId: null, reviveQueuedAt: null, reviveChoice: null, reviveChoiceRemaining: 0,
       coreX: 0, coreY: 0, lastGroundX: spawn.x, lastGroundY: spawn.y,
       trail: [], previousInput: {}, exitHold: 0, zone: 0
     };
@@ -88,6 +88,7 @@ function isHole(x, y) {
     ui.results.classList.remove('is-visible');
     ui.pause.classList.remove('is-visible');
     ui.settings.classList.remove('is-visible');
+    ui.reviveChoice.classList.remove('show');
     ui.hud.classList.add('is-visible');
     buildPlayerHud();
     updateMobileVisibility();
@@ -101,6 +102,7 @@ function isHole(x, y) {
     ui.pause.classList.remove('is-visible');
     ui.results.classList.remove('is-visible');
     ui.settings.classList.remove('is-visible');
+    ui.reviveChoice.classList.remove('show');
     updateMobileVisibility();
     camera.x = 800; camera.y = 800; camera.zoom = .9;
   }
@@ -159,6 +161,7 @@ function isHole(x, y) {
     player.reviveRescuerId = null;
     player.reviveQueuedAt = null;
     player.reviveChoice = null;
+    player.reviveChoiceRemaining = 0;
     player.coreX = player.lastGroundX;
     player.coreY = player.lastGroundY;
     player.vx = player.vy = 0;
@@ -167,7 +170,7 @@ function isHole(x, y) {
     shake = Math.max(shake, 15);
     spawnParticles(player.coreX, player.coreY, player.color, 28, 230);
     sound.down();
-    showToast(`P${player.id + 1} 구조 신호 — 코어를 스치면 즉시 부활`);
+    showToast(`P${player.id + 1} 구조 신호 — 코어에 접촉해 부활 연결`);
     const active = players.filter(p => !p.downed && !p.escaped);
     const escaped = players.filter(p => p.escaped);
     if (!active.length) {
@@ -183,8 +186,29 @@ function isHole(x, y) {
   }
 
   function promptReviveChoice(player) {
-    showCenter('REVIVE CHOICE', `P${player.id + 1} · I 체크포인트 / O 쓰러진 위치`, 4.5, player.color);
-    showToast(`P${player.id + 1} 부활 위치 선택: I = 최신 체크포인트 · O = 쓰러진 위치`, 4.5);
+    showToast(`P${player.id + 1} · 5초 안에 I 체크포인트 / O 쓰러진 위치를 선택하세요`, 2.2);
+  }
+
+  function localReviveChoicePlayer() {
+    if (window.OnlineSession?.isGuestPlaying()) {
+      const player = players[window.OnlineSession.localSlot()];
+      return player?.downed && player.awaitingReviveChoice ? player : null;
+    }
+    if (window.OnlineSession?.isHostPlaying()) {
+      const player = players[0];
+      return player?.downed && player.awaitingReviveChoice ? player : null;
+    }
+    return pendingRevivePlayers()[0] || null;
+  }
+
+  function updateReviveChoiceUi() {
+    const player = state === 'playing' ? localReviveChoicePlayer() : null;
+    players.forEach(candidate => $(`playerChip${candidate.id}`)?.classList.toggle('revive-contact', candidate.awaitingReviveChoice));
+    ui.reviveChoice.classList.toggle('show', !!player);
+    if (!player) return;
+    ui.reviveChoice.style.setProperty('--revive-player', player.color);
+    ui.reviveChoicePlayer.textContent = `P${player.id + 1} 부활 위치`;
+    ui.reviveChoiceCountdown.textContent = Math.max(0, player.reviveChoiceRemaining || 0).toFixed(1);
   }
 
   function beginReviveChoice(player, rescuer) {
@@ -198,9 +222,14 @@ function isHole(x, y) {
     player.reviveRescuerId = rescuer.id;
     player.reviveQueuedAt = ++reviveChoiceSequence;
     player.reviveChoice = null;
+    player.reviveChoiceRemaining = 5;
     prepareReviveChoiceInput();
-    sound.tone(440, .08, 'sine', .018, 660);
+    spawnParticles(player.coreX, player.coreY, '#b4ff62', 34, 185);
+    shake = Math.max(shake, 6);
+    sound.tone(440, .12, 'sine', .024, 880);
+    showCenter('CORE LINKED', `P${rescuer.id + 1} → P${player.id + 1} · 부활 위치를 선택하세요`, 1.05, '#b4ff62');
     if (!hadPendingChoice) promptReviveChoice(player);
+    updateReviveChoiceUi();
   }
 
   function consumeReviveChoiceKey(code) {
@@ -223,6 +252,7 @@ function isHole(x, y) {
     player.downed = false;
     player.awaitingReviveChoice = false;
     player.reviveChoice = resolvedChoice;
+    player.reviveChoiceRemaining = 0;
     player.x = spawn.x;
     player.y = spawn.y + (resolvedChoice === 'core' ? 0 : (player.id - (players.length - 1) / 2) * 34);
     player.lastGroundX = player.x; player.lastGroundY = player.y;
@@ -240,6 +270,7 @@ function isHole(x, y) {
     const locationLabel = resolvedChoice === 'start' ? '출발 지점' : resolvedChoice === 'checkpoint' ? '최신 체크포인트' : '쓰러진 위치';
     showCenter(selectedMode === 'extreme' ? 'HARD REVIVE' : 'RESCUE!', `P${player.id + 1} · ${locationLabel}`, 1.1, player.color);
     showToast(`P${player.id + 1} ${locationLabel}에서 부활`, 1.3);
+    updateReviveChoiceUi();
     const next = pendingRevivePlayers()[0];
     if (next) setTimeout(() => {
       if (state === 'playing' && next.downed && next.awaitingReviveChoice) promptReviveChoice(next);
@@ -256,7 +287,7 @@ function isHole(x, y) {
       p.invulnerable = 1; p.lastGroundX = p.x; p.lastGroundY = p.y; p.trail.length = 0;
       p.brakeCharges = selectedMode === 'extreme' ? 0 : 2; p.brakeRegen = 0; p.exitHold = 0;
       p.jumpCooldown = p.boostCooldown = 0; p.finishPlace = p.finishTime = null; p.previousInput = {};
-      p.awaitingReviveChoice = false; p.reviveRescuerId = null; p.reviveQueuedAt = null; p.reviveChoice = null;
+      p.awaitingReviveChoice = false; p.reviveRescuerId = null; p.reviveQueuedAt = null; p.reviveChoice = null; p.reviveChoiceRemaining = 0;
     });
     escapeOrder = [];
     wipeTimer = 0; exitActive = false; exitTimer = exitDuration();
@@ -514,6 +545,11 @@ function isHole(x, y) {
   }
 
   function getZone(x) {
+    if (selectedCustomMap) {
+      const startX = selectedCustomMap.layout.spawn.x;
+      const endX = selectedCustomMap.layout.exit.x;
+      return clamp(Math.floor(((x - startX) / Math.max(1, endX - startX)) * 5), 0, 4);
+    }
     if (x < 2450) return 0;
     if (x < 4200) return 1;
     if (x < 5750) return 2;
@@ -618,6 +654,15 @@ function isHole(x, y) {
       return;
     }
     runTime += dt;
+    for (const player of [...pendingRevivePlayers()]) {
+      player.reviveChoiceRemaining = Math.max(0, player.reviveChoiceRemaining - dt);
+      if (player.reviveChoiceRemaining <= 0) {
+        const rescuer = players.find(candidate => candidate.id === player.reviveRescuerId);
+        showToast(`P${player.id + 1} 선택 시간 종료 · 최신 체크포인트에서 부활`);
+        revivePlayer(player, rescuer, 'checkpoint');
+      }
+    }
+    updateReviveChoiceUi();
     if (wipeTimer > 0) {
       wipeTimer -= dt;
       if (wipeTimer <= 0) restartFromCheckpoint();
@@ -673,8 +718,9 @@ function isHole(x, y) {
         segment.classList.toggle('partial', fill > 0 && fill < .999);
         segment.style.setProperty('--fill', `${fill * 100}%`);
       });
-      const stateLabel = p.escaped ? `#${p.finishPlace} FINISH` : p.awaitingReviveChoice ? 'I:CHECK / O:CORE' : p.downed ? 'SIGNAL LOST' : p.invulnerable > 0 ? 'SYNCING' : 'ACTIVE';
+      const stateLabel = p.escaped ? `#${p.finishPlace} FINISH` : p.awaitingReviveChoice ? `CHOOSE ${Math.max(0, p.reviveChoiceRemaining).toFixed(1)}s` : p.downed ? 'SIGNAL LOST' : p.invulnerable > 0 ? 'SYNCING' : 'ACTIVE';
       chip.querySelector('.chip-state').textContent = stateLabel;
+      chip.classList.toggle('revive-contact', p.awaitingReviveChoice);
       const chargeEls = chip.querySelectorAll('.charges i');
       chargeEls.forEach((el, i) => el.classList.toggle('on', i < p.brakeCharges));
       const cooldowns = [
@@ -759,6 +805,7 @@ function isHole(x, y) {
         awaitingChoice: player.awaitingReviveChoice,
         rescuerId: player.reviveRescuerId,
         queuedAt: player.reviveQueuedAt,
+        remaining: player.reviveChoiceRemaining,
         choice: player.reviveChoice,
         deathPosition: { x: player.coreX, y: player.coreY }
       }))

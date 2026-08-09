@@ -348,6 +348,24 @@ kbd, .keycap {
 .toast { position: fixed; z-index: 25; left: 50%; bottom: 70px; transform: translate(-50%, 18px); opacity: 0; padding: 10px 17px; border-radius: 4px; color: #c9dce6; font-size: 11px; transition: .25s; pointer-events: none; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+.revive-choice-overlay { position: fixed; z-index: 31; left: 50%; top: 50%; width: min(460px, calc(100vw - 28px)); padding: 20px; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, calc(-50% + 16px)) scale(.97); border: 1px solid rgba(180,255,98,.55); border-radius: 7px; background: rgba(3,13,20,.94); box-shadow: 0 0 0 1px rgba(180,255,98,.08), 0 18px 60px rgba(0,0,0,.55), inset 0 0 36px rgba(180,255,98,.06); transition: .18s ease; }
+.revive-choice-overlay.show { opacity: 1; visibility: visible; pointer-events: auto; transform: translate(-50%,-50%) scale(1); }
+.revive-choice-overlay > small { color: var(--lime); font: 700 9px "IBM Plex Mono", monospace; letter-spacing: .16em; }
+.revive-choice-heading { margin-top: 7px; display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+.revive-choice-heading b { color: #ecfff1; font: 900 25px "Arial Black", Impact, sans-serif; }
+.revive-choice-heading strong { min-width: 72px; color: var(--lime); text-align: right; font: 700 31px "IBM Plex Mono", monospace; text-shadow: 0 0 18px rgba(180,255,98,.55); }
+.revive-choice-overlay > p { margin: 8px 0 15px; color: #8199a7; font-size: 10px; line-height: 1.55; }
+.revive-choice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.revive-choice-actions button { min-height: 66px; padding: 10px 12px; display: flex; align-items: center; gap: 11px; border: 1px solid rgba(255,255,255,.11); border-radius: 4px; background: rgba(6,23,31,.8); color: #cce0e7; text-align: left; cursor: pointer; }
+.revive-choice-actions button:hover, .revive-choice-actions button:focus-visible { border-color: var(--lime); background: rgba(50,84,45,.38); outline: none; }
+.revive-choice-actions kbd { min-width: 34px; min-height: 34px; display: grid; place-items: center; border-color: rgba(180,255,98,.7); color: var(--lime); font-size: 15px; }
+.revive-choice-actions span, .revive-choice-actions b, .revive-choice-actions small { display: block; }
+.revive-choice-actions b { font-size: 11px; }
+.revive-choice-actions small { margin-top: 4px; color: #738a98; font-size: 8px; }
+.player-chip.revive-contact { border-color: var(--lime); background: rgba(29,51,28,.9); box-shadow: 0 0 22px rgba(180,255,98,.22); animation: revive-contact-pulse .62s infinite alternate; }
+.player-chip.revive-contact .chip-state { color: var(--lime); }
+@keyframes revive-contact-pulse { to { filter: brightness(1.24); } }
+
 .modal-screen { display: grid; place-items: center; background: rgba(1,5,11,.62); backdrop-filter: blur(7px); }
 .modal-card, .result-card, .settings-card { width: min(420px, calc(100vw - 32px)); padding: 36px; border-radius: 8px; text-align: center; }
 .modal-card h2, .result-card h2 { margin: 6px 0 10px; font: 900 42px "Arial Black", Impact, sans-serif; }
@@ -465,7 +483,43 @@ kbd, .keycap {
 .custom-toolbar { margin: 18px 0 11px; display: flex; justify-content: space-between; align-items: center; gap: 15px; }
 .custom-toolbar p { margin: 0; color: #9eb4c1; font-size: 10px; }
 .custom-toolbar .secondary-button { width: auto; }
+.custom-maps-card:has(.custom-create-form:not(.is-hidden)) { width: min(980px, calc(100vw - 30px)); }
 .custom-create-form { margin-bottom: 12px; padding: 15px; border: 1px solid rgba(84,245,255,.18); background: rgba(4,13,22,.54); }
+.custom-meta-fields { display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
+.custom-meta-fields .field-label { margin-top: 0; }
+.custom-editor-heading { margin: 17px 0 9px; display: flex; justify-content: space-between; align-items: end; gap: 14px; }
+.custom-editor-heading b, .custom-editor-heading small { display: block; }
+.custom-editor-heading b { color: var(--cyan); font: 700 10px "IBM Plex Mono", monospace; letter-spacing: .12em; }
+.custom-editor-heading small { margin-top: 3px; color: #688194; font-size: 8px; }
+.custom-editor-heading > span { color: #96aeba; font-size: 9px; text-align: right; }
+.custom-editor-heading > span.is-error { color: var(--danger); }
+.custom-editor-heading > span.is-ready { color: var(--lime); }
+.custom-editor-tools { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+.custom-editor-tools button { min-height: 49px; padding: 5px 3px; display: grid; place-items: center; align-content: center; gap: 5px; border: 1px solid rgba(255,255,255,.09); border-radius: 3px; background: rgba(2,9,16,.74); color: #78909f; font-size: 8px; cursor: pointer; }
+.custom-editor-tools button:hover { border-color: rgba(84,245,255,.42); color: #c9e4ec; }
+.custom-editor-tools button.selected { border-color: var(--cyan); color: var(--cyan); background: rgba(25,73,86,.48); box-shadow: inset 0 0 12px rgba(84,245,255,.08); }
+.custom-editor-tools i { width: 17px; height: 17px; display: block; border: 2px solid currentColor; }
+.custom-editor-tools .tool-spawn { border-radius: 50%; background: rgba(84,245,255,.2); }
+.custom-editor-tools .tool-exit { border-radius: 50%; color: var(--lime); box-shadow: 0 0 7px currentColor; }
+.custom-editor-tools .tool-checkpoint { transform: rotate(45deg) scale(.72); }
+.custom-editor-tools .tool-pillar, .custom-editor-tools .tool-bumper, .custom-editor-tools .tool-shockwave, .custom-editor-tools .tool-hole, .custom-editor-tools .tool-enemy { border-radius: 50%; }
+.custom-editor-tools .tool-bumper { color: #ffb95a; }
+.custom-editor-tools .tool-rotor { width: 24px; height: 5px; border-width: 0; background: #ff5c8d; }
+.custom-editor-tools .tool-shockwave { border-style: double; border-width: 4px; color: #c889ff; }
+.custom-editor-tools .tool-laser { width: 3px; border: 0; background: #ff4d78; box-shadow: 0 0 6px #ff4d78; }
+.custom-editor-tools .tool-gate { width: 5px; border-color: #ff8458; }
+.custom-editor-tools .tool-boost { width: 24px; height: 12px; transform: skewX(-18deg); color: #ffd85a; }
+.custom-editor-tools .tool-hole { color: #374856; background: #01050a; }
+.custom-editor-tools .tool-enemy { color: #ff4d78; background: rgba(255,77,120,.16); }
+.custom-editor-tools .tool-erase { border: 0; border-bottom: 5px solid #a4b2ba; transform: rotate(-35deg); }
+.custom-editor-stage { margin-top: 7px; overflow: hidden; border: 1px solid rgba(84,245,255,.25); border-radius: 4px; background: #030a12; }
+#customMapEditor { width: 100%; height: auto; min-height: 260px; display: block; cursor: crosshair; touch-action: none; }
+.custom-editor-footer { min-height: 33px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #587184; font-size: 8px; }
+.custom-editor-footer div { display: flex; gap: 5px; }
+.custom-editor-footer button { padding: 5px 7px; border: 1px solid rgba(255,255,255,.1); border-radius: 3px; background: rgba(3,11,19,.7); color: #7e95a4; font-size: 8px; cursor: pointer; }
+.custom-editor-footer button:hover { color: var(--cyan); border-color: rgba(84,245,255,.4); }
+.custom-verification-note { margin: 8px 0 0; padding: 9px 11px; border-left: 3px solid var(--lime); background: rgba(180,255,98,.055); color: #789080; font-size: 9px; line-height: 1.55; }
+.custom-verification-note b { color: var(--lime); }
 .custom-form-actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 7px; }
 .custom-form-actions .primary-button, .custom-form-actions .text-button { margin-top: 15px; height: 42px; }
 .custom-map-list { display: grid; gap: 8px; }
@@ -523,6 +577,13 @@ kbd, .keycap {
   .lobby-players { grid-template-columns: repeat(2, 1fr); }
   .custom-map-item { grid-template-columns: 1fr; }
   .custom-map-actions button { flex: 1; }
+  .custom-meta-fields { grid-template-columns: 1fr; }
+  .custom-editor-heading { align-items: start; flex-direction: column; }
+  .custom-editor-heading > span { text-align: left; }
+  .custom-editor-tools { grid-template-columns: repeat(4, 1fr); }
+  #customMapEditor { min-height: 220px; }
+  .custom-editor-footer { align-items: flex-start; flex-direction: column; padding: 7px 0; }
+  .revive-choice-actions { grid-template-columns: 1fr; }
 }
 
 @media (pointer: coarse), (max-width: 820px) {

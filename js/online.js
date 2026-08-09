@@ -25,7 +25,8 @@ const OnlineSession = (() => {
     unlocked: $('customUnlocked'), progress: $('customClearProgress'), unlockLabel: $('customUnlockLabel'),
     menuButton: $('customMapsButton'), showCreator: $('showCustomCreatorButton'), form: $('customMapForm'),
     cancelCreator: $('cancelCustomCreatorButton'), name: $('customMapName'), difficulty: $('customMapDifficulty'),
-    seed: $('customMapSeed'), list: $('customMapList')
+    list: $('customMapList'), editor: $('customMapEditor'), editorTools: $('customEditorTools'),
+    editorStatus: $('customEditorStatus'), undo: $('undoCustomEditButton'), clear: $('clearCustomEditButton')
   };
 
   let trystero = null;
@@ -55,6 +56,7 @@ const OnlineSession = (() => {
   let localProbe = { id: 0, previousInput: {} };
   let browserRefreshTimer = 0;
   let connectingTimer = 0;
+  let validationDraft = null;
 
   const cleanCode = value => String(value || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
   const mapLabel = settings => settings?.mapType === 'custom'
@@ -97,7 +99,7 @@ const OnlineSession = (() => {
     if (map) {
       return {
         mode: selectedMode, mapType: 'custom', mapIndex: clamp(map.difficulty - 1, 0, 4),
-        customCode: CustomMapStore.serialize(map), customName: map.name
+        customCode: CustomMapStore.serialize(map), customName: map.name, customMap: map
       };
     }
     return { mode: selectedMode, mapType: 'preset', mapIndex: selectedMap };
@@ -107,7 +109,7 @@ const OnlineSession = (() => {
     selectedMode = settings.mode === 'extreme' ? 'extreme' : 'normal';
     document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('selected', button.dataset.mode === selectedMode));
     if (settings.mapType === 'custom') {
-      const decoded = CustomMapStore.deserialize(settings.customCode);
+      const decoded = CustomMapStore.validateMap(settings.customMap) ? settings.customMap : CustomMapStore.deserialize(settings.customCode);
       if (!decoded) throw new Error('커스텀 맵 코드를 해석할 수 없습니다.');
       decoded.name = settings.customName || decoded.name;
       configureCustomCourse(decoded);
@@ -446,6 +448,7 @@ const OnlineSession = (() => {
     if (!player?.downed || !player.awaitingReviveChoice) return false;
     actions.control.send({ type: 'reviveChoice', choice: code === 'KeyI' ? 'checkpoint' : 'core' }, { target: hostId });
     player.awaitingReviveChoice = false;
+    player.reviveChoiceRemaining = 0;
     showToast(code === 'KeyI' ? '최신 체크포인트 부활을 선택했습니다.' : '쓰러진 위치 부활을 선택했습니다.');
     return true;
   }
@@ -464,7 +467,7 @@ const OnlineSession = (() => {
         finishPlace: player.finishPlace, finishTime: player.finishTime, coreX: player.coreX, coreY: player.coreY,
         lastGroundX: player.lastGroundX, lastGroundY: player.lastGroundY, exitHold: player.exitHold,
         zone: player.zone, awaitingReviveChoice: player.awaitingReviveChoice,
-        reviveRescuerId: player.reviveRescuerId, reviveChoice: player.reviveChoice,
+        reviveRescuerId: player.reviveRescuerId, reviveChoice: player.reviveChoice, reviveChoiceRemaining: player.reviveChoiceRemaining,
         deathCount: player.deathCount
       })),
       enemies: enemies.map(enemy => ({ x: enemy.x, y: enemy.y, vx: enemy.vx, vy: enemy.vy })),
@@ -493,7 +496,12 @@ const OnlineSession = (() => {
         if (!players[index]) players[index] = createPlayer(index, checkpoints[0]);
         const player = players[index];
         const oldX = player.x, oldY = player.y;
+        const wasAwaitingRevive = player.awaitingReviveChoice;
         Object.assign(player, incoming);
+        if (!wasAwaitingRevive && player.awaitingReviveChoice) {
+          showToast(`P${player.id + 1} 코어 접촉 완료 · 부활 위치 선택 대기`, 2.2);
+          sound.tone(440, .12, 'sine', .018, 880);
+        }
         if (!immediate && Number.isFinite(oldX)) {
           player.x = lerp(oldX, incoming.x, .76);
           player.y = lerp(oldY, incoming.y, .76);
@@ -528,6 +536,7 @@ const OnlineSession = (() => {
       updateParticles(dt);
       updateCamera(dt);
       updateHud(dt);
+      updateReviveChoiceUi();
     } else if (role === 'host') {
       snapshotClock += dt;
       if (snapshotClock >= SNAPSHOT_RATE) {
@@ -537,7 +546,26 @@ const OnlineSession = (() => {
     }
   }
 
-  function onRunFinished() {
+  function onRunFinished(result) {
+    if (validationDraft && selectedCustomMap?.id === validationDraft.id && role === 'offline') {
+      if (result?.full) {
+        try {
+          const registered = CustomMapStore.registerVerified(validationDraft, { fullClear: true, creatorTest: true, runId: activeRunId });
+          validationDraft = null;
+          configureCustomCourse(registered);
+          refreshCustomUi();
+          ui.resultEyebrow.textContent = 'MAP VERIFIED';
+          ui.resultTitle.textContent = '커스텀 맵 등록 완료';
+          ui.resultSummary.textContent = '제작자 클리어가 확인되었습니다. 이제 이 맵을 싱글과 멀티에서 플레이할 수 있습니다.';
+          ui.record.textContent = `VERIFIED · ${CustomMapStore.serialize(registered)}`;
+        } catch (error) { showToast(error.message, 3); }
+      } else {
+        ui.resultEyebrow.textContent = 'TEST NOT CLEARED';
+        ui.resultTitle.textContent = '아직 등록되지 않았습니다';
+        ui.resultSummary.textContent = '맵은 임시 테스트 상태입니다. 다시 도전해 직접 클리어하면 등록됩니다.';
+        ui.record.textContent = 'CREATOR CLEAR REQUIRED';
+      }
+    }
     if (role !== 'host' || !actions) return;
     phase = 'results';
     actions.control.send({ type: 'result', snapshot: captureSnapshot() });
@@ -565,6 +593,146 @@ const OnlineSession = (() => {
     returnToMenu();
   }
 
+  const editorColors = {
+    checkpoint: '#54f5ff', pillar: '#98b8c6', bumper: '#ffb95a', rotor: '#ff5c8d',
+    shockwave: '#c889ff', laser: '#ff4d78', gate: '#ff8458', boost: '#ffd85a', hole: '#172733', enemy: '#ff4d78'
+  };
+  let editorTool = 'spawn';
+  let editorLayout = { spawn: null, exit: null, objects: [] };
+  let editorHistory = [];
+
+  const copyEditorLayout = () => JSON.parse(JSON.stringify(editorLayout));
+  const snapEditor = value => Math.round(value / 100) * 100;
+
+  function resetCustomEditor() {
+    editorTool = 'spawn';
+    editorLayout = { spawn: null, exit: null, objects: [] };
+    editorHistory = [];
+    selectEditorTool('spawn');
+    renderCustomEditor();
+  }
+
+  function selectEditorTool(tool) {
+    editorTool = tool;
+    uiCustom.editorTools.querySelectorAll('[data-editor-tool]').forEach(button => button.classList.toggle('selected', button.dataset.editorTool === tool));
+  }
+
+  function pushEditorHistory() {
+    editorHistory.push(copyEditorLayout());
+    if (editorHistory.length > 60) editorHistory.shift();
+  }
+
+  function editorPoint(event) {
+    const rect = uiCustom.editor.getBoundingClientRect();
+    const x = snapEditor(((event.clientX - rect.left) / rect.width) * WORLD.width);
+    const y = snapEditor(((event.clientY - rect.top) / rect.height) * WORLD.height);
+    const bounds = CustomMapStore.WORLD_BOUNDS;
+    return { x: clamp(x, bounds.minX, bounds.maxX), y: clamp(y, bounds.minY, bounds.maxY) };
+  }
+
+  function eraseEditorPoint(position) {
+    const candidates = [
+      ...(editorLayout.spawn ? [{ kind: 'spawn', value: editorLayout.spawn }] : []),
+      ...(editorLayout.exit ? [{ kind: 'exit', value: editorLayout.exit }] : []),
+      ...editorLayout.objects.map((value, index) => ({ kind: 'object', value, index }))
+    ];
+    const nearest = candidates.reduce((best, item) => {
+      const distance = Math.hypot(item.value.x - position.x, item.value.y - position.y);
+      return !best || distance < best.distance ? { ...item, distance } : best;
+    }, null);
+    if (!nearest || nearest.distance > 230) return false;
+    if (nearest.kind === 'spawn') editorLayout.spawn = null;
+    else if (nearest.kind === 'exit') editorLayout.exit = null;
+    else editorLayout.objects.splice(nearest.index, 1);
+    return true;
+  }
+
+  function placeEditorObject(position, erase = false) {
+    pushEditorHistory();
+    if (erase || editorTool === 'erase') {
+      if (!eraseEditorPoint(position)) editorHistory.pop();
+    } else if (editorTool === 'spawn') editorLayout.spawn = position;
+    else if (editorTool === 'exit') editorLayout.exit = { ...position, r: 118 };
+    else if (editorLayout.objects.length < CustomMapStore.MAX_OBJECTS) editorLayout.objects.push({ type: editorTool, ...position });
+    else { editorHistory.pop(); showToast(`배치 요소는 최대 ${CustomMapStore.MAX_OBJECTS}개입니다.`); }
+    renderCustomEditor();
+  }
+
+  function drawEditorMarker(context, item) {
+    const x = item.x / WORLD.width * uiCustom.editor.width;
+    const y = item.y / WORLD.height * uiCustom.editor.height;
+    const sx = uiCustom.editor.width / WORLD.width;
+    context.save(); context.translate(x, y);
+    if (item.type === 'spawn') {
+      context.fillStyle = '#54f5ff'; context.shadowColor = '#54f5ff'; context.shadowBlur = 10;
+      context.beginPath(); context.arc(0, 0, 8, 0, Math.PI * 2); context.fill();
+      context.fillStyle = '#dfffff'; context.font = '700 8px monospace'; context.fillText('START', 12, -7);
+    } else if (item.type === 'exit') {
+      context.strokeStyle = '#b4ff62'; context.shadowColor = '#b4ff62'; context.shadowBlur = 12; context.lineWidth = 3;
+      context.beginPath(); context.arc(0, 0, Math.max(7, item.r * sx), 0, Math.PI * 2); context.stroke();
+      context.fillStyle = '#eaffda'; context.font = '700 8px monospace'; context.fillText('EXIT', 12, -7);
+    } else if (item.type === 'checkpoint') {
+      context.strokeStyle = editorColors.checkpoint; context.lineWidth = 2; context.rotate(Math.PI / 4); context.strokeRect(-6, -6, 12, 12);
+    } else if (item.type === 'rotor') {
+      context.strokeStyle = editorColors.rotor; context.lineWidth = 5; context.beginPath(); context.moveTo(-17, 0); context.lineTo(17, 0); context.stroke();
+      context.fillStyle = '#fff'; context.beginPath(); context.arc(0, 0, 3, 0, Math.PI * 2); context.fill();
+    } else if (item.type === 'laser' || item.type === 'gate') {
+      context.strokeStyle = editorColors[item.type]; context.shadowColor = editorColors[item.type]; context.shadowBlur = 6; context.lineWidth = item.type === 'laser' ? 2 : 5;
+      context.beginPath(); context.moveTo(0, -22); context.lineTo(0, 22); context.stroke();
+    } else if (item.type === 'boost') {
+      context.fillStyle = editorColors.boost; context.transform(1, 0, -.25, 1, 0, 0); context.fillRect(-11, -7, 22, 14);
+      context.fillStyle = '#14202a'; context.beginPath(); context.moveTo(-5, -4); context.lineTo(7, 0); context.lineTo(-5, 4); context.fill();
+    } else {
+      const radius = item.type === 'hole' ? 10 : item.type === 'shockwave' ? 9 : 7;
+      context.fillStyle = item.type === 'hole' ? '#01050a' : `${editorColors[item.type]}55`;
+      context.strokeStyle = editorColors[item.type]; context.lineWidth = item.type === 'shockwave' ? 3 : 2;
+      context.beginPath(); context.arc(0, 0, radius, 0, Math.PI * 2); context.fill(); context.stroke();
+      if (item.type === 'shockwave') { context.beginPath(); context.arc(0, 0, 14, 0, Math.PI * 2); context.stroke(); }
+    }
+    context.restore();
+  }
+
+  function renderCustomEditor() {
+    const context = uiCustom.editor.getContext('2d');
+    const width = uiCustom.editor.width, height = uiCustom.editor.height;
+    context.clearRect(0, 0, width, height);
+    const background = context.createLinearGradient(0, 0, 0, height);
+    background.addColorStop(0, '#071521'); background.addColorStop(1, '#02070d');
+    context.fillStyle = background; context.fillRect(0, 0, width, height);
+    context.fillStyle = '#113145'; context.strokeStyle = 'rgba(84,245,255,.28)'; context.lineWidth = 2;
+    context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.fill(); context.stroke();
+    context.save(); context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.clip();
+    context.strokeStyle = 'rgba(84,245,255,.08)'; context.lineWidth = 1;
+    for (let x = 0; x <= WORLD.width; x += 500) { const px = x / WORLD.width * width; context.beginPath(); context.moveTo(px, 36); context.lineTo(px, height - 36); context.stroke(); }
+    for (let y = 300; y <= 1300; y += 200) { const py = y / WORLD.height * height; context.beginPath(); context.moveTo(8, py); context.lineTo(width - 8, py); context.stroke(); }
+    context.restore();
+    if (editorLayout.spawn) drawEditorMarker(context, { type: 'spawn', ...editorLayout.spawn });
+    if (editorLayout.exit) drawEditorMarker(context, { type: 'exit', ...editorLayout.exit });
+    editorLayout.objects.forEach(item => drawEditorMarker(context, item));
+    const validation = CustomMapStore.validateLayout(editorLayout);
+    uiCustom.editorStatus.textContent = validation.message;
+    uiCustom.editorStatus.classList.toggle('is-ready', validation.valid);
+    uiCustom.editorStatus.classList.toggle('is-error', !validation.valid);
+  }
+
+  function openCustomCreator() {
+    uiCustom.form.classList.remove('is-hidden');
+    resetCustomEditor();
+    setTimeout(() => uiCustom.name.focus(), 20);
+  }
+
+  function beginCustomValidation() {
+    const draft = CustomMapStore.createDraft({ name: uiCustom.name.value, difficulty: Number(uiCustom.difficulty.value), layout: editorLayout });
+    validationDraft = draft;
+    selectedPlayers = 1;
+    selectedMode = 'normal';
+    document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('selected', button.dataset.mode === 'normal'));
+    configureCustomCourse(draft);
+    closeCustomMaps();
+    startGame();
+    showToast('제작자 테스트 시작 · 직접 클리어하면 맵이 등록됩니다.', 3.2);
+  }
+
   function refreshCustomUi() {
     const progress = CustomMapStore.getUnlockProgress();
     uiCustom.locked.classList.toggle('is-hidden', progress.unlocked);
@@ -578,10 +746,10 @@ const OnlineSession = (() => {
     uiCustom.list.innerHTML = maps.length ? maps.map(map => {
       const code = CustomMapStore.serialize(map);
       return `<article class="custom-map-item" data-custom-id="${map.id}">
-        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>DIFFICULTY ${map.difficulty} · SEED ${map.seed} · CODE ${code}</small></div>
+        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>✓ CREATOR CLEARED · DIFFICULTY ${map.difficulty} · MAP ID ${code} · ${map.layout.objects.length} ELEMENTS</small></div>
         <div class="custom-map-actions"><button type="button" data-custom-single="${map.id}">SINGLE PLAY</button><button type="button" data-custom-multi="${map.id}">MULTI PLAY</button><button class="delete-custom" type="button" data-custom-delete="${map.id}" aria-label="맵 삭제">×</button></div>
       </article>`;
-    }).join('') : '<p class="empty-room-list">아직 만든 맵이 없습니다.<br>새 맵 생성 버튼으로 첫 코스를 만들어보세요.</p>';
+    }).join('') : '<p class="empty-room-list">아직 검증을 마친 맵이 없습니다.<br>맵을 직접 만든 뒤 테스트 플레이를 클리어해 등록하세요.</p>';
     uiCustom.list.querySelectorAll('[data-custom-single]').forEach(button => button.addEventListener('click', () => playCustomSingle(button.dataset.customSingle)));
     uiCustom.list.querySelectorAll('[data-custom-multi]').forEach(button => button.addEventListener('click', () => playCustomMulti(button.dataset.customMulti)));
     uiCustom.list.querySelectorAll('[data-custom-delete]').forEach(button => button.addEventListener('click', () => {
@@ -608,6 +776,7 @@ const OnlineSession = (() => {
   function playCustomSingle(id) {
     const map = CustomMapStore.get(id);
     if (!map) return;
+    validationDraft = null;
     selectedPlayers = 1;
     configureCustomCourse(map);
     closeCustomMaps();
@@ -617,6 +786,7 @@ const OnlineSession = (() => {
   function playCustomMulti(id) {
     const map = CustomMapStore.get(id);
     if (!map) return;
+    validationDraft = null;
     closeCustomMaps();
     openChannel(map).then(() => openCreateForm(map));
   }
@@ -649,16 +819,28 @@ const OnlineSession = (() => {
   uiOnline.leave.addEventListener('click', () => { leaveRoom(false); showChannelView(uiOnline.browser); openLobbyConnection().catch(() => {}); });
   uiCustom.menuButton.addEventListener('click', openCustomMaps);
   uiCustom.close.addEventListener('click', closeCustomMaps);
-  uiCustom.showCreator.addEventListener('click', () => uiCustom.form.classList.remove('is-hidden'));
+  uiCustom.showCreator.addEventListener('click', openCustomCreator);
   uiCustom.cancelCreator.addEventListener('click', () => uiCustom.form.classList.add('is-hidden'));
+  uiCustom.editorTools.querySelectorAll('[data-editor-tool]').forEach(button => button.addEventListener('click', () => selectEditorTool(button.dataset.editorTool)));
+  uiCustom.editor.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    placeEditorObject(editorPoint(event), event.button === 2);
+  });
+  uiCustom.editor.addEventListener('contextmenu', event => event.preventDefault());
+  uiCustom.undo.addEventListener('click', () => {
+    const previous = editorHistory.pop();
+    if (previous) { editorLayout = previous; renderCustomEditor(); }
+  });
+  uiCustom.clear.addEventListener('click', () => {
+    if (!editorLayout.objects.some(item => item.type !== 'checkpoint')) return;
+    pushEditorHistory();
+    editorLayout.objects = editorLayout.objects.filter(item => item.type === 'checkpoint');
+    renderCustomEditor();
+  });
   uiCustom.form.addEventListener('submit', event => {
     event.preventDefault();
     try {
-      CustomMapStore.create({ name: uiCustom.name.value, difficulty: Number(uiCustom.difficulty.value), seed: uiCustom.seed.value || undefined });
-      uiCustom.form.reset();
-      uiCustom.form.classList.add('is-hidden');
-      refreshCustomUi();
-      showToast('새 커스텀 맵을 생성했습니다.');
+      beginCustomValidation();
     } catch (error) { showToast(error.message); }
   });
   addEventListener('keydown', event => {
@@ -668,6 +850,7 @@ const OnlineSession = (() => {
   });
 
   refreshCustomUi();
+  resetCustomEditor();
   const api = {
     openChannel, openCreateForm, closeChannel, openCustomMaps, refreshCustomUi,
     tick, getRemoteInput, sendReviveChoice, onRunFinished, leaveRoom, leaveToMenu, restartOrWait, recordClear,

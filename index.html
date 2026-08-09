@@ -99,6 +99,15 @@
 
     <div id="centerMessage" class="center-message" aria-live="assertive"></div>
     <div id="toast" class="toast glass" aria-live="polite"></div>
+    <section id="reviveChoiceOverlay" class="revive-choice-overlay glass" aria-live="assertive" aria-label="부활 위치 선택">
+      <small>CORE CONTACT · 부활 연결 완료</small>
+      <div class="revive-choice-heading"><b id="reviveChoicePlayer">P1 부활 위치</b><strong id="reviveChoiceCountdown">5.0</strong></div>
+      <p>5초 안에 살아날 곳을 선택하세요. 시간이 끝나면 최신 체크포인트가 선택됩니다.</p>
+      <div class="revive-choice-actions">
+        <button type="button" data-revive-choice="KeyI"><kbd>I</kbd><span><b>체크포인트</b><small>최신 안전 구역</small></span></button>
+        <button type="button" data-revive-choice="KeyO"><kbd>O</kbd><span><b>쓰러진 위치</b><small>구조 코어 자리</small></span></button>
+      </div>
+    </section>
 
     <section id="pauseScreen" class="screen modal-screen" aria-label="일시정지">
       <div class="modal-card glass">
@@ -194,12 +203,32 @@
           <span>◇</span><b>커스텀 랩 잠김</b><p>기본 맵에서 총 3라운드를 완주하면 맵 생성기가 열립니다.</p><em id="customClearProgress">0 / 3 CLEAR</em>
         </div>
         <div id="customUnlocked" class="is-hidden">
-          <div class="custom-toolbar"><p>저장된 커스텀 맵</p><button id="showCustomCreatorButton" class="secondary-button" type="button">＋ 새 맵 생성</button></div>
+          <div class="custom-toolbar"><p>클리어 검증을 마친 커스텀 맵</p><button id="showCustomCreatorButton" class="secondary-button" type="button">＋ 새 맵 만들기</button></div>
           <form id="customMapForm" class="custom-create-form is-hidden">
-            <label class="field-label">맵 이름<input id="customMapName" maxlength="18" placeholder="나의 탈출 코스" required></label>
-            <label class="field-label">난이도<select id="customMapDifficulty"><option value="1">1 · 연습</option><option value="2">2 · 보통</option><option value="3" selected>3 · 어려움</option><option value="4">4 · 극한</option><option value="5">5 · 혼돈</option></select></label>
-            <label class="field-label">시드<input id="customMapSeed" maxlength="12" placeholder="자동 생성"></label>
-            <div class="custom-form-actions"><button id="cancelCustomCreatorButton" class="text-button" type="button">취소</button><button class="primary-button" type="submit">맵 생성</button></div>
+            <div class="custom-meta-fields">
+              <label class="field-label">맵 이름<input id="customMapName" maxlength="18" placeholder="나의 탈출 코스" required></label>
+              <label class="field-label">난이도<select id="customMapDifficulty"><option value="1">1 · 연습</option><option value="2">2 · 보통</option><option value="3" selected>3 · 어려움</option><option value="4">4 · 극한</option><option value="5">5 · 혼돈</option></select></label>
+            </div>
+            <div class="custom-editor-heading"><div><b>MAP EDITOR</b><small>도구를 고른 뒤 맵을 터치해 직접 배치하세요</small></div><span id="customEditorStatus">시작점과 종료 존을 지정하세요</span></div>
+            <div id="customEditorTools" class="custom-editor-tools" role="toolbar" aria-label="맵 편집 도구">
+              <button type="button" data-editor-tool="spawn"><i class="tool-spawn"></i>시작점</button>
+              <button type="button" data-editor-tool="exit"><i class="tool-exit"></i>종료 존</button>
+              <button type="button" data-editor-tool="checkpoint"><i class="tool-checkpoint"></i>체크포인트</button>
+              <button type="button" data-editor-tool="pillar"><i class="tool-pillar"></i>기둥</button>
+              <button type="button" data-editor-tool="bumper"><i class="tool-bumper"></i>범퍼</button>
+              <button type="button" data-editor-tool="rotor"><i class="tool-rotor"></i>회전봉</button>
+              <button type="button" data-editor-tool="shockwave"><i class="tool-shockwave"></i>충격파</button>
+              <button type="button" data-editor-tool="laser"><i class="tool-laser"></i>레이저</button>
+              <button type="button" data-editor-tool="gate"><i class="tool-gate"></i>게이트</button>
+              <button type="button" data-editor-tool="boost"><i class="tool-boost"></i>가속판</button>
+              <button type="button" data-editor-tool="hole"><i class="tool-hole"></i>구멍</button>
+              <button type="button" data-editor-tool="enemy"><i class="tool-enemy"></i>추적자</button>
+              <button type="button" data-editor-tool="erase"><i class="tool-erase"></i>지우개</button>
+            </div>
+            <div class="custom-editor-stage"><canvas id="customMapEditor" width="860" height="320" aria-label="커스텀 맵 편집 영역"></canvas></div>
+            <div class="custom-editor-footer"><span>격자에 맞춰 배치됩니다 · 우클릭으로도 지울 수 있습니다</span><div><button id="undoCustomEditButton" type="button">되돌리기</button><button id="clearCustomEditButton" type="button">장애물 비우기</button></div></div>
+            <p class="custom-verification-note"><b>등록 조건</b> 테스트 플레이에서 제작자가 직접 종료 존까지 클리어해야 목록에 등록됩니다.</p>
+            <div class="custom-form-actions"><button id="cancelCustomCreatorButton" class="text-button" type="button">취소</button><button class="primary-button" type="submit">테스트 플레이</button></div>
           </form>
           <div id="customMapList" class="custom-map-list"></div>
         </div>

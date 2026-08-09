@@ -1,24 +1,25 @@
 'use strict';
 
-// SLIP OUT: custom maps layer
-// Classic-script API. Load this file before the UI layer that consumes it.
+// SLIP OUT: authored custom-map storage and validation.
 (function exposeCustomMapStore(global) {
-  const VERSION = 1;
+  const VERSION = 2;
   const UNLOCK_CLEAR_COUNT = 3;
   const MAX_MAPS = 40;
   const MAX_NAME_LENGTH = 30;
-  const MAX_SEED = 0x7fff;
+  const MAX_OBJECTS = 80;
   const MAPS_KEY = 'slip-out-custom-maps-v1';
   const PROGRESS_KEY = 'slip-out-custom-progress-v1';
+  const WORLD_BOUNDS = { minX: 160, maxX: 8440, minY: 250, maxY: 1350 };
+  const OBJECT_TYPES = new Set(['checkpoint', 'pillar', 'bumper', 'rotor', 'shockwave', 'laser', 'gate', 'boost', 'hole', 'enemy']);
   const SAFE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-
-  const status = {
-    storageMode: 'memory',
-    lastStorageError: null
-  };
+  const status = { storageMode: 'memory', lastStorageError: null };
 
   const copy = value => JSON.parse(JSON.stringify(value));
   const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
+  const finite = value => Number.isFinite(Number(value));
+  const point = value => value && finite(value.x) && finite(value.y)
+    ? { x: Math.round(clampValue(Number(value.x), WORLD_BOUNDS.minX, WORLD_BOUNDS.maxX)), y: Math.round(clampValue(Number(value.y), WORLD_BOUNDS.minY, WORLD_BOUNDS.maxY)) }
+    : null;
 
   function hashText(text) {
     let hash = 2166136261;
@@ -33,12 +34,10 @@
     try {
       if (!global.localStorage) return copy(fallback);
       const raw = global.localStorage.getItem(key);
-      status.storageMode = 'localStorage';
-      status.lastStorageError = null;
+      status.storageMode = 'localStorage'; status.lastStorageError = null;
       return raw === null ? copy(fallback) : JSON.parse(raw);
     } catch (error) {
-      status.storageMode = 'memory';
-      status.lastStorageError = String(error && error.message ? error.message : error);
+      status.storageMode = 'memory'; status.lastStorageError = String(error?.message || error);
       return copy(fallback);
     }
   }
@@ -47,395 +46,222 @@
     try {
       if (!global.localStorage) return false;
       global.localStorage.setItem(key, JSON.stringify(value));
-      status.storageMode = 'localStorage';
-      status.lastStorageError = null;
+      status.storageMode = 'localStorage'; status.lastStorageError = null;
       return true;
     } catch (error) {
-      status.storageMode = 'memory';
-      status.lastStorageError = String(error && error.message ? error.message : error);
+      status.storageMode = 'memory'; status.lastStorageError = String(error?.message || error);
       return false;
     }
   }
 
   function normalizeProgress(value) {
-    const fullClears = Number.isInteger(value && value.fullClears)
-      ? clampValue(value.fullClears, 0, 999999)
-      : 0;
-    const clearedRuns = Array.isArray(value && value.clearedRuns)
-      ? value.clearedRuns.filter(item => typeof item === 'string').slice(-100)
-      : [];
+    const fullClears = Number.isInteger(value?.fullClears) ? clampValue(value.fullClears, 0, 999999) : 0;
+    const clearedRuns = Array.isArray(value?.clearedRuns) ? value.clearedRuns.filter(item => typeof item === 'string').slice(-100) : [];
     return { fullClears, clearedRuns };
   }
 
-  function normalizeSeed(value) {
-    if (typeof value === 'string' && value.trim() !== '') {
-      const numeric = Number(value);
-      value = Number.isFinite(numeric) ? numeric : hashText(value);
-    }
-    if (!Number.isFinite(value)) return null;
-    return (Math.abs(Math.trunc(value)) >>> 0) % (MAX_SEED + 1);
+  function normalizeObject(value) {
+    if (!value || !OBJECT_TYPES.has(value.type)) return null;
+    const position = point(value);
+    if (!position) return null;
+    return { type: value.type, ...position };
   }
 
-  function normalizedMap(value, options) {
-    options = options || {};
+  function normalizeLayout(value) {
+    if (!value || typeof value !== 'object') return null;
+    const spawn = point(value.spawn);
+    const exitPoint = point(value.exit);
+    if (!spawn || !exitPoint) return null;
+    const exit = { ...exitPoint, r: clampValue(Math.round(Number(value.exit.r) || 118), 90, 145) };
+    const objects = Array.isArray(value.objects) ? value.objects.map(normalizeObject).filter(Boolean).slice(0, MAX_OBJECTS) : [];
+    return { spawn, exit, objects };
+  }
+
+  function legacyLayout(map) {
+    // Previously registered seed maps remain playable, but all newly authored maps use explicit placements.
+    const difficulty = clampValue(Number(map.difficulty) || 1, 1, 5);
+    const objects = [];
+    for (let index = 0; index < difficulty + 2; index++) {
+      objects.push({ type: index % 3 === 0 ? 'rotor' : index % 3 === 1 ? 'bumper' : 'pillar', x: 1500 + index * (5300 / (difficulty + 1)), y: index % 2 ? 1050 : 550 });
+    }
+    return { spawn: { x: 430, y: 800 }, exit: { x: 8220, y: 800, r: 118 }, objects };
+  }
+
+  function normalizedMap(value, options = {}) {
     if (!value || typeof value !== 'object') return null;
     const name = typeof value.name === 'string' ? value.name.trim() : '';
-    const seed = normalizeSeed(value.seed);
     const difficulty = Number(value.difficulty);
-    const createdAt = typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt))
-      ? new Date(value.createdAt).toISOString()
-      : null;
+    const createdAt = typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt)) ? new Date(value.createdAt).toISOString() : null;
     const id = typeof value.id === 'string' ? value.id.trim() : '';
-    if (!name || name.length > MAX_NAME_LENGTH || seed === null) return null;
-    if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5) return null;
-    if (!createdAt || !/^[a-z0-9][a-z0-9_-]{3,63}$/i.test(id)) return null;
-    const result = { id, name, seed, difficulty, createdAt };
+    const layout = normalizeLayout(value.layout) || (finite(value.seed) ? legacyLayout(value) : null);
+    if (!name || name.length > MAX_NAME_LENGTH || !Number.isInteger(difficulty) || difficulty < 1 || difficulty > 5 || !createdAt || !layout) return null;
+    if (!/^(?:cm|draft|shared)_[a-z0-9_-]{3,63}$/i.test(id)) return null;
+    const verified = value.verified === true || (finite(value.seed) && !value.layout);
+    if (options.requireVerified && !verified) return null;
+    const result = { id, name, difficulty, createdAt, verified, layout };
+    if (verified) result.verifiedAt = typeof value.verifiedAt === 'string' && !Number.isNaN(Date.parse(value.verifiedAt)) ? new Date(value.verifiedAt).toISOString() : createdAt;
     return options.freeze ? Object.freeze(result) : result;
+  }
+
+  function validateLayout(value) {
+    const layout = normalizeLayout(value);
+    if (!layout) return { valid: false, message: '시작점과 종료 존을 맵 위에 지정해 주세요.' };
+    if (layout.exit.x - layout.spawn.x < 1200) return { valid: false, message: '종료 존은 시작점보다 충분히 오른쪽에 놓아 주세요.' };
+    const hazards = layout.objects.filter(item => item.type !== 'checkpoint');
+    if (!hazards.length) return { valid: false, message: '장애물을 1개 이상 배치해 주세요.' };
+    const checkpoints = layout.objects.filter(item => item.type === 'checkpoint');
+    if (checkpoints.length > 4) return { valid: false, message: '체크포인트는 최대 4개까지 배치할 수 있습니다.' };
+    if (checkpoints.some(item => item.x <= layout.spawn.x + 300 || item.x >= layout.exit.x - 300)) return { valid: false, message: '체크포인트는 시작점과 종료 존 사이에 놓아 주세요.' };
+    const safetyPoints = [layout.spawn, layout.exit, ...checkpoints];
+    const unsafe = hazards.some(item => safetyPoints.some(safe => Math.hypot(item.x - safe.x, item.y - safe.y) < (item.type === 'hole' ? 180 : 125)));
+    if (unsafe) return { valid: false, message: '시작점·종료 존·체크포인트 주변의 장애물을 조금 떼어 주세요.' };
+    return { valid: true, message: `테스트 가능 · 장애물 ${hazards.length}개${checkpoints.length ? ` · 체크포인트 ${checkpoints.length}개` : ''}`, layout };
   }
 
   function normalizeMaps(value) {
     if (!Array.isArray(value)) return [];
     const seen = new Set();
-    const result = [];
-    value.forEach(item => {
-      const map = normalizedMap(item);
-      if (map && !seen.has(map.id) && result.length < MAX_MAPS) {
-        seen.add(map.id);
-        result.push(map);
-      }
+    return value.map(item => normalizedMap(item, { requireVerified: true })).filter(item => {
+      if (!item || seen.has(item.id) || seen.size >= MAX_MAPS) return false;
+      seen.add(item.id); return true;
     });
-    return result;
   }
 
   let progress = normalizeProgress(storageRead(PROGRESS_KEY, { fullClears: 0, clearedRuns: [] }));
   let maps = normalizeMaps(storageRead(MAPS_KEY, []));
-
-  function persistMaps() {
-    storageWrite(MAPS_KEY, maps);
-  }
-
-  function persistProgress() {
-    storageWrite(PROGRESS_KEY, progress);
-  }
-
-  function isUnlocked() {
-    return progress.fullClears >= UNLOCK_CLEAR_COUNT;
-  }
-
-  function unlockProgress() {
-    return {
-      fullClears: progress.fullClears,
-      requiredClears: UNLOCK_CLEAR_COUNT,
-      remainingClears: Math.max(0, UNLOCK_CLEAR_COUNT - progress.fullClears),
-      unlocked: isUnlocked()
-    };
-  }
+  storageWrite(MAPS_KEY, maps);
+  const persistMaps = () => storageWrite(MAPS_KEY, maps);
+  const persistProgress = () => storageWrite(PROGRESS_KEY, progress);
+  const isUnlocked = () => progress.fullClears >= UNLOCK_CLEAR_COUNT;
+  const unlockProgress = () => ({ fullClears: progress.fullClears, requiredClears: UNLOCK_CLEAR_COUNT, remainingClears: Math.max(0, UNLOCK_CLEAR_COUNT - progress.fullClears), unlocked: isUnlocked() });
 
   function recordFullClear(runId) {
     const before = isUnlocked();
     const normalizedRunId = typeof runId === 'string' ? runId.trim().slice(0, 80) : '';
-    if (normalizedRunId && progress.clearedRuns.includes(normalizedRunId)) {
-      return { ...unlockProgress(), counted: false, newlyUnlocked: false };
-    }
+    if (normalizedRunId && progress.clearedRuns.includes(normalizedRunId)) return { ...unlockProgress(), counted: false, newlyUnlocked: false };
     progress.fullClears += 1;
     if (normalizedRunId) progress.clearedRuns.push(normalizedRunId);
-    progress.clearedRuns = progress.clearedRuns.slice(-100);
-    persistProgress();
+    progress.clearedRuns = progress.clearedRuns.slice(-100); persistProgress();
     return { ...unlockProgress(), counted: true, newlyUnlocked: !before && isUnlocked() };
   }
 
-  function recordResult(result) {
-    if (!result || result.fullClear !== true) {
-      return { ...unlockProgress(), counted: false, newlyUnlocked: false };
-    }
-    return recordFullClear(result.runId);
-  }
-
   function requireUnlocked() {
-    if (!isUnlocked()) {
-      const error = new Error(`커스텀 맵은 전체 클리어 ${UNLOCK_CLEAR_COUNT}회 후 해금됩니다.`);
-      error.code = 'CUSTOM_MAP_LOCKED';
-      throw error;
-    }
+    if (isUnlocked()) return;
+    const error = new Error(`커스텀 맵은 전체 클리어 ${UNLOCK_CLEAR_COUNT}회 후 해금됩니다.`);
+    error.code = 'CUSTOM_MAP_LOCKED'; throw error;
   }
 
-  function makeId(name, seed, createdAt) {
-    const suffix = hashText(`${name}|${seed}|${createdAt}`).toString(36).padStart(7, '0').slice(-7);
-    let id = `cm_${Date.parse(createdAt).toString(36)}_${suffix}`;
-    let counter = 1;
-    while (maps.some(item => item.id === id)) id = `${id.slice(0, 58)}_${counter++}`;
+  function makeId(prefix, name, layout, createdAt) {
+    const fingerprint = hashText(`${name}|${JSON.stringify(layout)}|${createdAt}`).toString(36).padStart(7, '0').slice(-7);
+    const base = `${prefix}_${Date.parse(createdAt).toString(36)}_${fingerprint}`;
+    let id = base, counter = 1;
+    while (maps.some(item => item.id === id)) id = `${base.slice(0, 58)}_${counter++}`;
     return id;
   }
 
-  function list() {
-    return maps.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(copy);
-  }
-
-  function get(id) {
-    const found = maps.find(item => item.id === id);
-    return found ? copy(found) : null;
-  }
-
-  function create(input) {
+  function createDraft(input = {}) {
     requireUnlocked();
-    if (maps.length >= MAX_MAPS) {
-      const error = new Error(`커스텀 맵은 최대 ${MAX_MAPS}개까지 저장할 수 있습니다.`);
-      error.code = 'CUSTOM_MAP_LIMIT';
-      throw error;
-    }
-    input = input || {};
+    const validation = validateLayout(input.layout);
+    if (!validation.valid) throw Object.assign(new TypeError(validation.message), { code: 'INVALID_CUSTOM_LAYOUT' });
     const createdAt = new Date().toISOString();
-    const suppliedSeed = normalizeSeed(input.seed);
-    const seed = suppliedSeed === null
-      ? hashText(`${input.name || ''}|${createdAt}|${maps.length}`) % (MAX_SEED + 1)
-      : suppliedSeed;
     const candidate = {
-      id: makeId(String(input.name || ''), seed, createdAt),
-      name: String(input.name || '').trim(),
-      seed,
-      difficulty: Number(input.difficulty),
-      createdAt
+      id: makeId('draft', String(input.name || ''), validation.layout, createdAt),
+      name: String(input.name || '').trim(), difficulty: Number(input.difficulty), createdAt,
+      verified: false, layout: validation.layout
     };
-    const map = normalizedMap(candidate);
-    if (!map) {
-      const error = new TypeError('맵 이름(1~30자), 시드, 난이도(1~5)를 확인해 주세요.');
-      error.code = 'INVALID_CUSTOM_MAP';
-      throw error;
-    }
-    maps.push(map);
-    persistMaps();
-    return copy(map);
+    const draft = normalizedMap(candidate);
+    if (!draft) throw Object.assign(new TypeError('맵 이름(1~30자)과 난이도(1~5)를 확인해 주세요.'), { code: 'INVALID_CUSTOM_MAP' });
+    return copy(draft);
   }
 
-  function update(id, changes) {
+  // Kept as a compatibility alias; drafts are never included in list() until registerVerified succeeds.
+  const create = input => createDraft(input);
+
+  function registerVerified(draftValue, proof) {
+    requireUnlocked();
+    if (maps.length >= MAX_MAPS) throw Object.assign(new Error(`커스텀 맵은 최대 ${MAX_MAPS}개까지 저장할 수 있습니다.`), { code: 'CUSTOM_MAP_LIMIT' });
+    const draft = normalizedMap(draftValue);
+    if (!draft || draft.verified || !proof || proof.fullClear !== true || proof.creatorTest !== true || typeof proof.runId !== 'string' || !proof.runId) {
+      throw Object.assign(new Error('제작자 테스트 클리어가 확인되어야 맵을 등록할 수 있습니다.'), { code: 'CUSTOM_MAP_NOT_VERIFIED' });
+    }
+    const verifiedAt = new Date().toISOString();
+    const map = normalizedMap({ ...draft, id: makeId('cm', draft.name, draft.layout, verifiedAt), verified: true, verifiedAt }, { requireVerified: true });
+    maps.push(map); persistMaps(); return copy(map);
+  }
+
+  const list = () => maps.slice().sort((a, b) => b.verifiedAt.localeCompare(a.verifiedAt)).map(copy);
+  const get = id => { const found = maps.find(item => item.id === id); return found ? copy(found) : null; };
+
+  function update(id, changes = {}) {
     requireUnlocked();
     const index = maps.findIndex(item => item.id === id);
     if (index < 0) return null;
-    changes = changes || {};
-    const candidate = {
-      ...maps[index],
-      name: changes.name === undefined ? maps[index].name : String(changes.name).trim(),
-      seed: changes.seed === undefined ? maps[index].seed : changes.seed,
-      difficulty: changes.difficulty === undefined ? maps[index].difficulty : Number(changes.difficulty)
-    };
-    const map = normalizedMap(candidate);
-    if (!map) {
-      const error = new TypeError('맵 이름(1~30자), 시드, 난이도(1~5)를 확인해 주세요.');
-      error.code = 'INVALID_CUSTOM_MAP';
-      throw error;
+    if (changes.layout !== undefined && JSON.stringify(normalizeLayout(changes.layout)) !== JSON.stringify(maps[index].layout)) {
+      throw Object.assign(new Error('배치를 수정한 맵은 다시 테스트 클리어해야 합니다.'), { code: 'CUSTOM_MAP_REVERIFY_REQUIRED' });
     }
-    maps[index] = map;
-    persistMaps();
-    return copy(map);
+    const map = normalizedMap({ ...maps[index], name: changes.name === undefined ? maps[index].name : String(changes.name).trim(), difficulty: changes.difficulty === undefined ? maps[index].difficulty : Number(changes.difficulty) }, { requireVerified: true });
+    if (!map) throw new TypeError('맵 이름과 난이도를 확인해 주세요.');
+    maps[index] = map; persistMaps(); return copy(map);
   }
 
   function remove(id) {
     requireUnlocked();
     const index = maps.findIndex(item => item.id === id);
     if (index < 0) return false;
-    maps.splice(index, 1);
-    persistMaps();
-    return true;
+    maps.splice(index, 1); persistMaps(); return true;
   }
 
-  function checksum(seed, difficulty) {
-    return hashText(`${seed}:${difficulty}:SLIP`) & 3;
-  }
-
-  function serialize(mapOrId) {
-    const map = typeof mapOrId === 'string' ? get(mapOrId) : normalizedMap(mapOrId);
-    if (!map) {
-      const error = new TypeError('공유할 수 없는 커스텀 맵입니다.');
-      error.code = 'INVALID_CUSTOM_MAP';
-      throw error;
-    }
-    let packed = ((map.difficulty - 1) << 17) | (checksum(map.seed, map.difficulty) << 15) | map.seed;
+  function serialize(mapValue) {
+    const map = typeof mapValue === 'string' ? get(mapValue) : normalizedMap(mapValue);
+    if (!map) throw new TypeError('공유할 수 없는 커스텀 맵입니다.');
+    let value = hashText(JSON.stringify({ name: map.name, difficulty: map.difficulty, layout: map.layout }));
     let code = '';
-    for (let index = 0; index < 4; index++) {
-      code = SAFE_ALPHABET[packed & 31] + code;
-      packed >>>= 5;
-    }
+    for (let index = 0; index < 6; index++) { code = SAFE_ALPHABET[value & 31] + code; value >>>= 5; }
     return code;
   }
 
   function deserialize(code) {
-    const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : '';
-    if (normalizedCode.length !== 4) return null;
-    let packed = 0;
-    for (const character of normalizedCode) {
-      const value = SAFE_ALPHABET.indexOf(character);
-      if (value < 0) return null;
-      packed = (packed << 5) | value;
-    }
-    const difficulty = ((packed >>> 17) & 7) + 1;
-    const storedChecksum = (packed >>> 15) & 3;
-    const seed = packed & MAX_SEED;
-    if (difficulty > 5 || storedChecksum !== checksum(seed, difficulty)) return null;
-    return {
-      id: `shared_${normalizedCode.toLowerCase()}`,
-      name: `공유 맵 ${normalizedCode}`,
-      seed,
-      difficulty,
-      createdAt: new Date(0).toISOString()
-    };
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    const found = maps.find(map => serialize(map) === normalizedCode);
+    return found ? copy(found) : null;
   }
 
-  function importCode(code, name) {
-    requireUnlocked();
-    const decoded = deserialize(code);
-    if (!decoded) {
-      const error = new TypeError('유효하지 않은 4자리 맵 코드입니다.');
-      error.code = 'INVALID_MAP_CODE';
-      throw error;
-    }
-    const existing = maps.find(item => serialize(item) === code.trim().toUpperCase());
-    if (existing) return copy(existing);
-    return create({ name: name || decoded.name, seed: decoded.seed, difficulty: decoded.difficulty });
-  }
-
-  function makeRandom(seed) {
-    let value = seed >>> 0;
-    return function random() {
-      value += 0x6d2b79f5;
-      let result = value;
-      result = Math.imul(result ^ (result >>> 15), result | 1);
-      result ^= result + Math.imul(result ^ (result >>> 7), result | 61);
-      return ((result ^ (result >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-
-  function generate(mapOrCode) {
-    const map = typeof mapOrCode === 'string'
-      ? (mapOrCode.length === 4 ? deserialize(mapOrCode) : get(mapOrCode))
-      : normalizedMap(mapOrCode);
-    if (!map) {
-      const error = new TypeError('생성할 수 없는 커스텀 맵입니다.');
-      error.code = 'INVALID_CUSTOM_MAP';
-      throw error;
-    }
-
-    const random = makeRandom((map.seed | (map.difficulty << 20)) >>> 0);
+  function generate(mapValue) {
+    const map = typeof mapValue === 'string' ? (get(mapValue) || deserialize(mapValue)) : normalizedMap(mapValue);
+    if (!map) throw Object.assign(new TypeError('생성할 수 없는 커스텀 맵입니다.'), { code: 'INVALID_CUSTOM_MAP' });
     const difficulty = map.difficulty;
-    const xAt = (index, count) => 1050 + index * (7000 / Math.max(1, count - 1)) + Math.round((random() - .5) * 180);
-    const yAt = () => Math.round(390 + random() * 820);
-    const direction = () => random() < .5 ? -1 : 1;
-    const makeMany = (count, factory) => Array.from({ length: count }, (_, index) => factory(index, count));
-
-    const winds = makeMany(Math.max(0, difficulty - 1), (index, count) => ({
-      x: xAt(index, count), y: 260, w: 420 + Math.round(random() * 280), h: 1080,
-      dirX: direction() * (.15 + random() * .85), dirY: direction() * random(),
-      strength: 190 + difficulty * 34 + Math.round(random() * 70)
-    }));
-    const shockwaves = makeMany(Math.max(0, difficulty - 2), (index, count) => ({
-      x: xAt(index, count), y: yAt(), period: Math.max(1.35, 3.05 - difficulty * .2 - random() * .35),
-      maxRadius: 370 + Math.round(random() * 170), width: 17 + difficulty * 2, phase: random() * 2
-    }));
-    const lasers = makeMany(Math.max(0, difficulty - 2) + (difficulty === 5 ? 2 : 0), (index, count) => {
-      const x = xAt(index, count);
-      const diagonal = random() > .62;
-      return {
-        x1: x, y1: 220, x2: diagonal ? x + direction() * (380 + random() * 260) : x,
-        y2: 1380, period: Math.max(1.45, 2.85 - difficulty * .18),
-        onFor: Math.max(.7, 1.5 - difficulty * .1), phase: random() * 1.8
-      };
+    const hazards = { winds: [], shockwaves: [], lasers: [], bumpers: [], rotors: [], movers: [], gates: [], launchers: [], pillars: [], collapse: [], boostPads: [], slowPads: [], holes: [] };
+    const enemies = [];
+    const checkpoints = [{ ...map.layout.spawn, zone: 0 }];
+    map.layout.objects.forEach((item, index) => {
+      const direction = index % 2 ? -1 : 1;
+      if (item.type === 'checkpoint') checkpoints.push({ x: item.x, y: item.y, zone: 0 });
+      else if (item.type === 'pillar') hazards.pillars.push({ x: item.x, y: item.y, r: 48 + difficulty * 3 });
+      else if (item.type === 'bumper') hazards.bumpers.push({ x: item.x, y: item.y, r: 46 + difficulty * 2 });
+      else if (item.type === 'rotor') hazards.rotors.push({ x: item.x, y: item.y, length: 300 + difficulty * 24, width: 24 + difficulty, speed: direction * (1.05 + difficulty * .2), angle: index * .7 });
+      else if (item.type === 'shockwave') hazards.shockwaves.push({ x: item.x, y: item.y, period: Math.max(1.35, 2.8 - difficulty * .2), maxRadius: 360 + difficulty * 28, width: 17 + difficulty * 2, phase: index * .31 });
+      else if (item.type === 'laser') hazards.lasers.push({ x1: item.x, y1: 250, x2: item.x, y2: 1350, period: Math.max(1.45, 2.8 - difficulty * .18), onFor: Math.max(.7, 1.5 - difficulty * .1), phase: index * .27 });
+      else if (item.type === 'gate') hazards.gates.push({ x: item.x, y: 250, w: 44, h: 1100, period: Math.max(1.9, 3.55 - difficulty * .24), openFor: Math.max(.7, 1.45 - difficulty * .1), phase: index * .35 });
+      else if (item.type === 'boost') hazards.boostPads.push({ x: item.x - 85, y: item.y - 105, w: 170, h: 210, dirX: 1, dirY: 0 });
+      else if (item.type === 'hole') hazards.holes.push({ kind: 'circle', x: item.x, y: item.y, r: 76 + difficulty * 7 });
+      else if (item.type === 'enemy') enemies.push({ x: item.x, y: item.y });
     });
-    const bumpers = makeMany(2 + difficulty * 2, (index, count) => ({
-      x: xAt(index, count), y: yAt(), r: 42 + Math.round(random() * 17)
-    }));
-    const rotors = makeMany(1 + Math.floor(difficulty / 2), (index, count) => ({
-      x: xAt(index, count), y: yAt(), length: 300 + Math.round(random() * 160),
-      width: 23 + difficulty, speed: direction() * (1.1 + difficulty * .22 + random() * .4), angle: random() * Math.PI
-    }));
-    const movers = makeMany(Math.floor(difficulty / 2), (index, count) => {
-      const x = xAt(index, count);
-      const y = yAt();
-      return {
-        baseX: x, baseY: y, x, y, w: 90 + Math.round(random() * 35), h: 210 + Math.round(random() * 90),
-        axis: random() < .7 ? 'y' : 'x', amp: 220 + Math.round(random() * 160),
-        speed: 1.15 + difficulty * .18 + random() * .3, phase: random() * 2.5
-      };
-    });
-    const gates = makeMany(Math.max(0, difficulty - 2), (index, count) => ({
-      x: xAt(index, count), y: 280, w: 44, h: 1040,
-      period: Math.max(1.9, 3.6 - difficulty * .25), openFor: Math.max(.65, 1.45 - difficulty * .12), phase: random() * 2
-    }));
-    const launchers = makeMany(Math.max(0, difficulty - 1), (index, count) => ({
-      x: xAt(index, count), y: random() < .5 ? 260 : 1340,
-      dirX: 0, dirY: random() < .5 ? 1 : -1,
-      period: Math.max(.85, 1.95 - difficulty * .15 - random() * .2), last: 0
-    }));
-    const pillars = makeMany(2 + difficulty, (index, count) => ({
-      x: xAt(index, count), y: yAt(), r: 42 + Math.round(random() * 22)
-    }));
-    const collapse = difficulty < 3 ? [] : makeMany((difficulty - 2) * 4, (index) => ({
-      x: 5900 + (index % 4) * 185, y: 470 + Math.floor(index / 4) * 180,
-      w: 160, h: 150, state: 'idle', timer: 0, seed: map.seed + index
-    }));
-    const boostPads = makeMany(1 + Math.floor(difficulty / 3), (index, count) => ({
-      x: xAt(index, count), y: yAt() - 100, w: 170, h: 230, dirX: 1, dirY: (random() - .5) * .45
-    }));
-    const slowPads = makeMany(Math.floor((difficulty + 1) / 2), (index, count) => ({
-      x: xAt(index, count), y: yAt() - 100, w: 170, h: 240
-    }));
-    const enemies = makeMany(1 + difficulty, (index, count) => ({ x: xAt(index, count), y: yAt() }));
-
+    checkpoints.sort((a, b) => a.x - b.x).forEach((item, index) => { item.zone = Math.min(index, 4); });
     return {
-      kind: 'custom',
-      version: VERSION,
-      map: copy(map),
-      code: serialize(map),
-      layout: {
-        floorPresetIndex: map.seed % 5,
-        holePresetIndex: (map.seed >>> 3) % 5,
-        mirrorY: Boolean((map.seed >>> 6) & 1),
-        holeScale: Number((.88 + difficulty * .035 + random() * .08).toFixed(3)),
-        laneOffset: Math.round((random() - .5) * 90),
-        collapseRateMultiplier: Number((1 + difficulty * .08).toFixed(2))
-      },
-      hazards: {
-        winds, shockwaves, lasers, bumpers, rotors, movers, gates, launchers,
-        pillars, collapse, boostPads, slowPads
-      },
-      enemies,
-      rules: {
-        enemySpeedMultiplier: Number((.9 + difficulty * .1).toFixed(2)),
-        hazardSpeedMultiplier: Number((.92 + difficulty * .08).toFixed(2))
-      }
+      kind: 'custom', version: VERSION, map: copy(map), code: serialize(map),
+      floors: [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }],
+      checkpoints, exit: copy(map.layout.exit), hazards, enemies,
+      rules: { enemySpeedMultiplier: Number((.9 + difficulty * .1).toFixed(2)), hazardSpeedMultiplier: Number((.92 + difficulty * .08).toFixed(2)) }
     };
   }
 
-  function validateMap(value) {
-    return normalizedMap(value) !== null;
-  }
-
-  function getStatus() {
-    return {
-      ...status,
-      version: VERSION,
-      mapCount: maps.length,
-      maxMaps: MAX_MAPS,
-      ...unlockProgress()
-    };
-  }
+  const validateMap = value => normalizedMap(value) !== null;
+  const getStatus = () => ({ ...status, version: VERSION, mapCount: maps.length, maxMaps: MAX_MAPS, ...unlockProgress() });
 
   global.CustomMapStore = Object.freeze({
-    VERSION,
-    UNLOCK_CLEAR_COUNT,
-    SAFE_ALPHABET,
-    getStatus,
-    getUnlockProgress: unlockProgress,
-    isUnlocked,
-    recordFullClear,
-    recordResult,
-    list,
-    get,
-    create,
-    update,
-    remove,
-    validateMap,
-    serialize,
-    deserialize,
-    importCode,
-    generate
+    VERSION, UNLOCK_CLEAR_COUNT, SAFE_ALPHABET, WORLD_BOUNDS, MAX_OBJECTS,
+    getStatus, getUnlockProgress: unlockProgress, isUnlocked, recordFullClear,
+    recordResult: result => result?.fullClear === true ? recordFullClear(result.runId) : { ...unlockProgress(), counted: false, newlyUnlocked: false },
+    list, get, create, createDraft, registerVerified, update, remove, validateMap, validateLayout, serialize, deserialize, generate
   });
 })(typeof window !== 'undefined' ? window : globalThis);

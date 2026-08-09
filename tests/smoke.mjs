@@ -103,11 +103,24 @@ try {
 
   await evaluate(`CustomMapStore.recordFullClear('smoke-clear-1'); CustomMapStore.recordFullClear('smoke-clear-2'); CustomMapStore.recordFullClear('smoke-clear-3'); OnlineSession.refreshCustomUi()`);
   assert((await evaluate(`CustomMapStore.getStatus()`)).unlocked, 'Custom maps did not unlock after three full clears.');
-  await evaluate(`document.getElementById('customMapsButton').click(); document.getElementById('customMapName').value='SMOKE LAB'; document.getElementById('customMapDifficulty').value='3'; document.getElementById('customMapForm').requestSubmit()`);
-  assert(await evaluate(`CustomMapStore.list().length >= 1`), 'Custom map creation failed.');
-  const customValidation = await evaluate(`(() => { configureCustomCourse(CustomMapStore.list()[0]); resetDynamics(); return window.__SLIP_OUT_DEBUG__.snapshot().courseValidation; })()`);
-  assert(customValidation.checkpoints.every(Boolean) && customValidation.exit, 'Generated custom map has an invalid checkpoint or exit surface.');
-  await evaluate(`document.getElementById('closeCustomMapsButton').click(); document.querySelector('[data-map="0"]').click()`);
+  const mapCountBeforeTest = await evaluate(`CustomMapStore.list().length`);
+  await evaluate(`(() => {
+    document.getElementById('customMapsButton').click(); document.getElementById('showCustomCreatorButton').click();
+    document.getElementById('customMapName').value='SMOKE LAB'; document.getElementById('customMapDifficulty').value='3';
+    const canvas=document.getElementById('customMapEditor'); const rect=canvas.getBoundingClientRect();
+    const place=(tool,x,y)=>{ document.querySelector('[data-editor-tool="'+tool+'"]').click(); canvas.dispatchEvent(new PointerEvent('pointerdown',{clientX:rect.left+x/8600*rect.width,clientY:rect.top+y/1600*rect.height,button:0,bubbles:true})); };
+    place('spawn',400,800); place('exit',8200,800); place('pillar',1800,500); place('rotor',3600,1000); place('laser',5900,800);
+    document.getElementById('customMapForm').requestSubmit();
+  })()`);
+  assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'playing', 'Authored custom map did not enter creator test play.');
+  assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest}`), 'Uncleared custom map was registered before creator validation.');
+  assert(await evaluate(`selectedCustomMap && selectedCustomMap.verified === false`), 'Creator test did not use an unverified draft.');
+  await evaluate(`startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
+  assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest + 1}`), 'Creator-cleared custom map was not registered.');
+  assert(await evaluate(`document.getElementById('resultTitle').textContent === '커스텀 맵 등록 완료'`), 'Custom-map verification result was not shown.');
+  const customValidation = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().courseValidation`);
+  assert(customValidation.checkpoints.every(Boolean) && customValidation.exit, 'Authored custom map has an invalid checkpoint or exit surface.');
+  await evaluate(`document.getElementById('resultMenuButton').click(); document.querySelector('[data-map="0"]').click()`);
 
   await evaluate(`document.getElementById('startButton').click()`);
   await sleep(3650);

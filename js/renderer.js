@@ -319,15 +319,19 @@ function drawBackground() {
   function drawCore(player) {
     if (!player.downed) return;
     const pulse = Math.sin(worldTime * 5 + player.id) * 7;
+    const linked = player.awaitingReviveChoice;
+    const coreColor = linked ? '#b4ff62' : player.color;
     ctx.save(); ctx.translate(player.coreX, player.coreY);
-    ctx.strokeStyle = player.color; ctx.shadowColor = player.color; ctx.shadowBlur = 25;
-    ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, 31 + pulse, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = coreColor; ctx.shadowColor = coreColor; ctx.shadowBlur = linked ? 42 : 25;
+    ctx.lineWidth = linked ? 8 : 5; ctx.beginPath(); ctx.arc(0, 0, 31 + pulse, 0, TAU); ctx.stroke();
     ctx.setLineDash([9, 8]); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 48 + pulse * .3, -worldTime * 2, TAU - worldTime * 2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = rgba(player.color, .72); ctx.rotate(worldTime * 1.8); ctx.fillRect(-12, -12, 24, 24);
-    ctx.shadowBlur = 0; ctx.rotate(-worldTime * 1.8);
-    const beam = ctx.createLinearGradient(0, -40, 0, -180); beam.addColorStop(0, rgba(player.color, .32)); beam.addColorStop(1, rgba(player.color, 0));
+    const coreAngle = worldTime * (linked ? 3.2 : 1.8);
+    ctx.fillStyle = rgba(coreColor, linked ? .95 : .72); ctx.rotate(coreAngle); ctx.fillRect(-12, -12, 24, 24);
+    ctx.shadowBlur = 0; ctx.rotate(-coreAngle);
+    const beam = ctx.createLinearGradient(0, -40, 0, -180); beam.addColorStop(0, rgba(coreColor, linked ? .55 : .32)); beam.addColorStop(1, rgba(coreColor, 0));
     ctx.fillStyle = beam; ctx.beginPath(); ctx.moveTo(-9, -25); ctx.lineTo(-3, -180); ctx.lineTo(3, -180); ctx.lineTo(9, -25); ctx.fill();
-    ctx.fillStyle = player.color; ctx.font = '600 12px "IBM Plex Mono", monospace'; ctx.textAlign = 'center'; ctx.fillText(`RESCUE P${player.id + 1}`, 0, -62);
+    ctx.fillStyle = coreColor; ctx.font = '600 12px "IBM Plex Mono", monospace'; ctx.textAlign = 'center';
+    ctx.fillText(linked ? `LINKED · ${Math.max(0, player.reviveChoiceRemaining || 0).toFixed(1)}s` : `RESCUE P${player.id + 1}`, 0, -62);
     ctx.restore();
   }
 
@@ -341,7 +345,9 @@ function drawBackground() {
   }
 
   function drawWorldLabels() {
-    const positions = [600, 3150, 4800, 6400, 7750];
+    const positions = selectedCustomMap
+      ? Array.from({ length: 5 }, (_, index) => lerp(selectedCustomMap.layout.spawn.x, selectedCustomMap.layout.exit.x, index / 4))
+      : [600, 3150, 4800, 6400, 7750];
     ctx.save(); ctx.textAlign = 'center';
     positions.forEach((x, i) => {
       ctx.fillStyle = 'rgba(166,224,241,.1)'; ctx.font = '600 72px "IBM Plex Mono", monospace';

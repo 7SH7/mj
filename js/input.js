@@ -106,6 +106,10 @@ const keys = new Set();
     }
   }
 
+  document.querySelectorAll('[data-revive-choice]').forEach(button => button.addEventListener('click', () => {
+    consumeReviveChoiceKey(button.dataset.reviveChoice);
+  }));
+
   function readInput(player) {
     const remote = window.OnlineSession?.getRemoteInput(player.id);
     const map = controlMaps[player.id] || controlMaps[0];

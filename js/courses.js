@@ -262,27 +262,27 @@ const BASE_FLOORS = [
       short: 'CUSTOM',
       difficulty: map.difficulty,
       accent: ['#54f5ff', '#79f6ca', '#ffd45c', '#ff8c5c', '#ff4d78'][difficultyIndex],
-      description: `시드 ${map.seed} · 난이도 ${map.difficulty} 커스텀 코스`,
-      brief: `공유 코드 ${generated.code} · 절차 생성 장애물`,
+      description: `직접 설계 · 장애물 ${map.layout.objects.filter(item => item.type !== 'checkpoint').length}개 · 난이도 ${map.difficulty}`,
+      brief: `${map.verified ? '클리어 검증 완료' : '제작자 테스트 중'} · MAP ID ${generated.code}`,
       enemies: copyList(generated.enemies),
       objectives: [...preset.objectives]
     };
-    floors = copyList(COURSE_FLOORS[generated.layout.floorPresetIndex]);
-    holes = copyList(COURSE_HOLES[generated.layout.holePresetIndex]);
-    checkpoints = copyList(BASE_CHECKPOINTS);
-    boostPads = copyList([...BASE_BOOST_PADS, ...hazard.boostPads]);
-    slowPads = copyList([...BASE_SLOW_PADS, ...hazard.slowPads]);
-    pillars = copyList([...BASE_PILLARS, ...hazard.pillars]);
-    rotors = copyList([...BASE_ROTORS, ...hazard.rotors]);
-    movers = copyList([...BASE_MOVERS, ...hazard.movers]);
-    gates = copyList([...BASE_GATES, ...hazard.gates]);
-    launchers = copyList([...BASE_LAUNCHERS, ...hazard.launchers]);
-    collapseTiles = copyList([...BASE_COLLAPSE_TILES, ...hazard.collapse]);
+    floors = copyList(generated.floors);
+    holes = copyList(hazard.holes);
+    checkpoints = copyList(generated.checkpoints);
+    boostPads = copyList(hazard.boostPads);
+    slowPads = copyList(hazard.slowPads);
+    pillars = copyList(hazard.pillars);
+    rotors = copyList(hazard.rotors);
+    movers = copyList(hazard.movers);
+    gates = copyList(hazard.gates);
+    launchers = copyList(hazard.launchers);
+    collapseTiles = copyList(hazard.collapse);
     winds = copyList(hazard.winds);
     shockwaves = copyList(hazard.shockwaves);
     lasers = copyList(hazard.lasers);
     bumpers = copyList(hazard.bumpers);
-    exit = { ...BASE_EXIT };
+    exit = { ...generated.exit };
     document.documentElement.style.setProperty('--map-accent', currentCourse.accent);
     if (ui.mapDifficulty) ui.mapDifficulty.textContent = `CUSTOM · 난이도 ${map.difficulty}`;
     if (ui.mapDescription) ui.mapDescription.textContent = currentCourse.description;

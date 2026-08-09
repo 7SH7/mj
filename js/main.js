@@ -78,7 +78,8 @@ function loop(timestamp) {
           jumpCooldown: p.jumpCooldown, jumpCooldownMax: p.jumpCooldownMax,
           boostCooldown: p.boostCooldown, boostCooldownMax: p.boostCooldownMax,
           downed: p.downed, escaped: p.escaped, finishPlace: p.finishPlace, finishTime: p.finishTime,
-          deathCount: p.deathCount, awaitingReviveChoice: p.awaitingReviveChoice, reviveChoice: p.reviveChoice
+          deathCount: p.deathCount, awaitingReviveChoice: p.awaitingReviveChoice,
+          reviveChoiceRemaining: p.reviveChoiceRemaining, reviveChoice: p.reviveChoice
         }))
       })
     },

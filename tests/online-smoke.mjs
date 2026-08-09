@@ -96,7 +96,9 @@ async function connect(endpoint, excludedIds = new Set()) {
     });
   };
   const evaluate = async expression => {
-    const response = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    let response;
+    try { response = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); }
+    catch (error) { throw new Error(`${error.message} · expression: ${expression.slice(0, 180)}`); }
     if (response.exceptionDetails) throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
     return response.result.value;
   };
@@ -119,8 +121,13 @@ await fetch(`${endpoint}/json/new?${encodeURIComponent('http://127.0.0.1:8765/in
 const guest = await connect(endpoint, new Set([host.pageId]));
 try {
   await Promise.all([host.evaluate(installTransportMock), guest.evaluate(installTransportMock)]);
+  await host.evaluate(`(() => {
+    CustomMapStore.recordFullClear('online-unlock-1'); CustomMapStore.recordFullClear('online-unlock-2'); CustomMapStore.recordFullClear('online-unlock-3');
+    const draft=CustomMapStore.createDraft({name:'ONLINE GRID',difficulty:3,layout:{spawn:{x:400,y:800},exit:{x:8200,y:800,r:118},objects:[{type:'pillar',x:1900,y:500},{type:'rotor',x:3900,y:1000},{type:'laser',x:6100,y:800}]}});
+    window.testOnlineCustomMap=CustomMapStore.registerVerified(draft,{fullClear:true,creatorTest:true,runId:'online-map-proof'});
+  })()`);
   await Promise.all([
-    host.evaluate(`OnlineSession.openChannel(); true`),
+    host.evaluate(`OnlineSession.openChannel(window.testOnlineCustomMap); true`),
     guest.evaluate(`OnlineSession.openChannel(); true`)
   ]);
   await waitFor(host, `document.getElementById('networkStatusText').textContent.includes('연결')`, 25000, 'host online module');
@@ -145,6 +152,8 @@ try {
   await host.evaluate(`document.getElementById('hostStartButton').click()`);
   await waitFor(host, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing'`, 12000, 'host game start');
   await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing'`, 20000, 'guest game start');
+  const guestCustom = await guest.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
+  if (guestCustom.courseName !== 'ONLINE GRID' || guestCustom.obstacleCounts.pillars !== 1 || guestCustom.obstacleCounts.rotors !== 1 || guestCustom.obstacleCounts.lasers !== 1 || !guestCustom.courseValidation.exit) throw new Error(`Authored custom-map layout was not synchronized (${JSON.stringify(guestCustom.obstacleCounts)}).`);
   await host.evaluate(`startCountdown=0`);
   await guest.evaluate(`dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD'})); OnlineSession.tick(.04)`);
   await waitFor(host, `OnlineSession.debug().remoteInputs.some(item => item[0] === 1 && item[1].x > .9)`, 6000, 'remote input delivery');
@@ -154,14 +163,19 @@ try {
   if (hostSnapshot.players[1].x <= 432) throw new Error(`Remote input was not simulated by host (${hostSnapshot.players[1].x}).`);
 
   await host.evaluate(`players[1].lastGroundX=1333; players[1].lastGroundY=777; downPlayer(players[1],'online-smoke'); beginReviveChoice(players[1],players[0]); OnlineSession.tick(.07)`);
-  await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().players[1].downed && window.__SLIP_OUT_DEBUG__.snapshot().players[1].awaitingReviveChoice`, 12000, 'guest revive prompt');
-  await guest.evaluate(`dispatchEvent(new KeyboardEvent('keydown',{code:'KeyI'})); dispatchEvent(new KeyboardEvent('keyup',{code:'KeyI'}))`);
+  await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().players[1].downed && window.__SLIP_OUT_DEBUG__.snapshot().players[1].awaitingReviveChoice && document.getElementById('reviveChoiceOverlay').classList.contains('show') && document.getElementById('playerChip1').classList.contains('revive-contact')`, 12000, 'guest revive prompt');
+  const revivePrompt = await guest.evaluate(`({visible:document.getElementById('reviveChoiceOverlay').classList.contains('show'),countdown:Number(document.getElementById('reviveChoiceCountdown').textContent),contact:document.getElementById('playerChip1').classList.contains('revive-contact')})`);
+  if (!revivePrompt.visible || !revivePrompt.contact || revivePrompt.countdown <= 0 || revivePrompt.countdown > 5) throw new Error(`Revive contact feedback is incomplete (${JSON.stringify(revivePrompt)}).`);
+  await guest.evaluate(`document.querySelector('[data-revive-choice="KeyI"]').click()`);
   await waitFor(host, `!window.__SLIP_OUT_DEBUG__.snapshot().players[1].downed`, 12000, 'player-owned revive choice');
   const revive = await host.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().players[1].reviveChoice`);
   if (revive !== 'checkpoint') throw new Error(`Guest revive choice was not authoritative (${revive}).`);
+  await host.evaluate(`players[1].lastGroundX=1500; players[1].lastGroundY=800; downPlayer(players[1],'online-timeout'); beginReviveChoice(players[1],players[0]); players[1].reviveChoiceRemaining=.02; updateGame(.03)`);
+  const timeoutRevive = await host.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().players[1]`);
+  if (timeoutRevive.downed || timeoutRevive.reviveChoice !== 'checkpoint') throw new Error(`Revive timeout did not choose the safe checkpoint (${JSON.stringify(timeoutRevive)}).`);
   if (host.errors.length || guest.errors.length) throw new Error(`Browser errors: ${[...host.errors, ...guest.errors].join(' | ')}`);
 
-  console.log(JSON.stringify({ ok: true, transport: 'deterministic-browser-mock', codeLength: code.length, peers: 2, remoteInput: true, hostAuthoritative: true, playerOwnedRevive: revive }));
+  console.log(JSON.stringify({ ok: true, transport: 'deterministic-browser-mock', codeLength: code.length, peers: 2, authoredCustomMapSynced: true, remoteInput: true, hostAuthoritative: true, reviveContactFeedback: true, reviveCountdown: 5, playerOwnedRevive: revive, timeoutFallback: timeoutRevive.reviveChoice }));
 } finally {
   await Promise.race([host.call('Browser.close').catch(() => {}), sleep(3000)]);
   host.close(); guest.close();

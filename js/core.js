@@ -15,6 +15,8 @@ const canvas = document.getElementById('game');
     settings: $('settingsScreen'), keyBindings: $('keyBindings'), bindingHint: $('bindingHint'),
     rankings: $('rankings'), mobileControls: $('mobileControls'), joystick: $('joystick'),
     joystickKnob: $('joystickKnob'), rotateHint: document.querySelector('.rotate-hint'),
+    reviveChoice: $('reviveChoiceOverlay'), reviveChoicePlayer: $('reviveChoicePlayer'),
+    reviveChoiceCountdown: $('reviveChoiceCountdown'),
     mapValue: $('mapValue'), mapDifficulty: $('mapDifficulty'), mapDescription: $('mapDescription'),
     mapBriefName: $('mapBriefName'), mapBriefDescription: $('mapBriefDescription')
   };
