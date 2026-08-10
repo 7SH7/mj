@@ -2,6 +2,14 @@ const endpoint = 'http://127.0.0.1:9224';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const installTransportMock = `(() => {
   const mockSelfId = 'mock-' + crypto.getRandomValues(new Uint32Array(2)).join('-');
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (resource, options = {}) => {
+    const url = typeof resource === 'string' ? resource : resource?.url;
+    if (url !== '/api/maps') return nativeFetch(resource, options);
+    const body = options.body ? JSON.parse(options.body) : null;
+    const payload = body?.action === 'publish' ? { code: body.code } : body?.action === 'report' ? { counted: true } : body?.action === 'rate' ? { rating: body.rating } : { maps: [] };
+    return Promise.resolve(new Response(JSON.stringify(payload), { status: body?.action === 'publish' ? 201 : 200, headers: { 'Content-Type': 'application/json' } }));
+  };
   window.TrysteroP2P = {
     selfId: mockSelfId,
     joinRoom(_config, roomId) {
@@ -194,7 +202,7 @@ try {
   await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing' && window.__SLIP_OUT_DEBUG__.snapshot().courseName === 'ONLINE GRID'`, 15000, 'custom map synchronization');
   await host.evaluate(`startCountdown=0; players.forEach((player,index)=>{ player.escaped=true; player.finishPlace=index+1; player.finishTime=runTime; }); escapeOrder=players.map(player=>player.id); finishRun(true)`);
   await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'results' && !document.getElementById('customReviewForm').classList.contains('is-hidden')`, 12000, 'guest custom review prompt');
-  await guest.evaluate(`document.querySelector('[data-review-rating="4"]').click(); document.getElementById('customReviewText').value='멀티 평가 전달'; document.getElementById('customReviewForm').requestSubmit()`);
+  await guest.evaluate(`document.querySelector('[data-review-rating="4"]').click(); document.getElementById('customReviewForm').requestSubmit()`);
   await waitFor(host, `CustomMapStore.getRating(window.testOnlineCustomMap).count > ${hostReviewCount}`, 12000, 'P2P custom review delivery');
   if (host.errors.length || guest.errors.length) throw new Error(`Browser errors: ${[...host.errors, ...guest.errors].join(' | ')}`);
 

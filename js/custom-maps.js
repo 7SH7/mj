@@ -89,7 +89,9 @@
     if (!spawn || !exitPoint) return null;
     const exit = { ...exitPoint, r: clampValue(Math.round(Number(value.exit.r) || 118), 90, 145) };
     const objects = Array.isArray(value.objects) ? value.objects.map(normalizeObject).filter(Boolean).slice(0, MAX_OBJECTS) : [];
-    const floors = Array.isArray(value.floors) ? value.floors.map(normalizeFloor).filter(Boolean).slice(0, MAX_FLOORS) : [];
+    const floors = Array.isArray(value.floors)
+      ? value.floors.map(normalizeFloor).filter(Boolean).slice(0, MAX_FLOORS)
+      : [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }];
     return { spawn, exit, floors, objects };
   }
 
@@ -100,7 +102,7 @@
     for (let index = 0; index < difficulty + 2; index++) {
       objects.push({ type: index % 3 === 0 ? 'rotor' : index % 3 === 1 ? 'bumper' : 'pillar', x: 1500 + index * (5300 / (difficulty + 1)), y: index % 2 ? 1050 : 550 });
     }
-    return { spawn: { x: 430, y: 800 }, exit: { x: 8220, y: 800, r: 118 }, floors: [], objects };
+    return { spawn: { x: 430, y: 800 }, exit: { x: 8220, y: 800, r: 118 }, floors: [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }], objects };
   }
 
   function normalizedMap(value, options = {}) {
@@ -122,6 +124,9 @@
   function validateLayout(value) {
     const layout = normalizeLayout(value);
     if (!layout) return { valid: false, message: '시작점과 종료 존을 맵 위에 지정해 주세요.' };
+    if (!layout.floors.length) return { valid: false, message: '바닥이 없습니다. 바닥 도구로 길을 먼저 배치해 주세요.' };
+    const hasFloor = pointValue => layout.floors.some(floor => pointValue.x >= floor.x && pointValue.x <= floor.x + floor.w && pointValue.y >= floor.y && pointValue.y <= floor.y + floor.h);
+    if (!hasFloor(layout.spawn) || !hasFloor(layout.exit)) return { valid: false, message: '시작점과 종료 존은 배치한 바닥 위에 놓아 주세요.' };
     if (layout.exit.x - layout.spawn.x < 1200) return { valid: false, message: '종료 존은 시작점보다 충분히 오른쪽에 놓아 주세요.' };
     const hazards = layout.objects.filter(item => item.type !== 'checkpoint');
     if (!hazards.length) return { valid: false, message: '장애물을 1개 이상 배치해 주세요.' };
@@ -148,9 +153,8 @@
   function normalizeReview(value) {
     if (!value || !Number.isInteger(Number(value.rating)) || Number(value.rating) < 1 || Number(value.rating) > 5) return null;
     const createdAt = typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt)) ? new Date(value.createdAt).toISOString() : new Date().toISOString();
-    const text = typeof value.text === 'string' ? value.text.trim().slice(0, 120) : '';
     const runId = typeof value.runId === 'string' ? value.runId.trim().slice(0, 80) : '';
-    return { rating: Number(value.rating), text, runId, createdAt };
+    return { rating: Number(value.rating), runId, createdAt };
   }
   function normalizeReviews(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -311,7 +315,7 @@
     checkpoints.sort((a, b) => a.x - b.x).forEach((item, index) => { item.zone = Math.min(index, 4); });
     return {
       kind: 'custom', version: VERSION, map: copy(map), code: serialize(map),
-      floors: [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }, ...copyList(map.layout.floors || [])],
+      floors: copyList(map.layout.floors || []),
       checkpoints, exit: copy(map.layout.exit), hazards, enemies,
       rules: { enemySpeedMultiplier: Number((.9 + difficulty * .1).toFixed(2)), hazardSpeedMultiplier: Number((.92 + difficulty * .08).toFixed(2)) }
     };

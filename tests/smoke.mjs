@@ -67,7 +67,23 @@ try {
   await call('Runtime.enable');
   await call('Log.enable');
   await evaluate(`new Promise(resolve => document.readyState === 'complete' ? resolve() : addEventListener('load', resolve, {once:true}))`);
-  assert(await evaluate(`typeof window.__SLIP_OUT_DEBUG__ === 'object'`), 'Debug snapshot API was not initialized.');
+  await evaluate(`(() => {
+    const nativeFetch = window.fetch.bind(window);
+    window.__communityRequests = [];
+    window.fetch = (resource, options = {}) => {
+      const url = typeof resource === 'string' ? resource : resource?.url;
+      if (url !== '/api/maps') return nativeFetch(resource, options);
+      const body = options.body ? JSON.parse(options.body) : null;
+      window.__communityRequests.push({ method: options.method || 'GET', body });
+      const payload = body?.action === 'publish' ? { code: body.code } : body?.action === 'report' ? { counted: true } : body?.action === 'rate' ? { rating: body.rating } : { maps: [] };
+      return Promise.resolve(new Response(JSON.stringify(payload), { status: body?.action === 'publish' ? 201 : 200, headers: { 'Content-Type': 'application/json' } }));
+    };
+  })()`);
+  const debugReady = await evaluate(`typeof window.__SLIP_OUT_DEBUG__ === 'object'`);
+  if (!debugReady) {
+    const diagnostics = await evaluate(`({ readyState: document.readyState, online: typeof OnlineSession, custom: typeof CustomMapStore, gameState: typeof state, scripts: [...document.scripts].map(script => ({ src: script.src, loaded: script.readyState })) })`);
+    throw new Error(`Debug snapshot API was not initialized: ${JSON.stringify(diagnostics)} | ${runtimeErrors.join(' | ')}`);
+  }
   assert(await evaluate(`document.getElementById('menu').classList.contains('is-visible')`), 'Main menu is not visible.');
   assert(await evaluate(`JSON.stringify([...document.scripts].map(script => script.getAttribute('src')).filter(Boolean)) === JSON.stringify(['js/core.js','js/input.js','js/courses.js','js/custom-maps.js','js/engine.js','js/renderer.js','vendor/trystero-0.25.3.js','js/online.js','js/main.js'])`), 'Feature scripts were not loaded in the expected dependency order.');
   assert(await evaluate(`document.querySelectorAll('[data-map]').length === 5`), 'Five-map selector was not rendered.');
@@ -124,21 +140,30 @@ try {
     document.getElementById('customMapName').value='SMOKE LAB'; document.getElementById('customMapDifficulty').value='3';
     const canvas=document.getElementById('customMapEditor'); const rect=canvas.getBoundingClientRect();
     const place=(tool,x,y)=>{ document.querySelector('[data-editor-tool="'+tool+'"]').click(); canvas.dispatchEvent(new PointerEvent('pointerdown',{clientX:rect.left+x/8600*rect.width,clientY:rect.top+y/1600*rect.height,button:0,bubbles:true})); };
-    place('spawn',400,800); place('exit',8200,800); place('floor-safe',2800,800); place('pillar',1800,500); place('rotor',3600,1000); place('laser',5900,800);
+    place('floor-safe',400,800); place('floor-ice',8200,800); place('spawn',400,800); place('exit',8200,800); place('pillar',1800,500); place('rotor',3600,1000); place('laser',5900,800);
     document.getElementById('customMapForm').requestSubmit();
   })()`);
   assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'playing', 'Authored custom map did not enter creator test play.');
   assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest}`), 'Uncleared custom map was registered before creator validation.');
   assert(await evaluate(`selectedCustomMap && selectedCustomMap.verified === false`), 'Creator test did not use an unverified draft.');
-  assert(await evaluate(`selectedCustomMap.layout.floors.length === 1 && floors.length === 2 && surfaceAt(2800,800).type === 'safe'`), 'Custom floor patch was not generated with its selected surface type.');
+  assert(await evaluate(`selectedCustomMap.layout.floors.length === 2 && floors.length === 2 && surfaceAt(400,800).type === 'safe' && surfaceAt(8200,800).type === 'ice' && surfaceAt(4500,800) === null`), 'Custom map did not preserve explicitly placed floor patches or generated an implicit base floor.');
   await evaluate(`startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
-  assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest + 1}`), 'Creator-cleared custom map was not registered.');
-  assert(await evaluate(`document.getElementById('resultTitle').textContent === '커스텀 맵 등록 완료'`), 'Custom-map verification result was not shown.');
+  assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest}`), 'Creator-cleared custom map was registered before explicit publication.');
+  assert(await evaluate(`!document.getElementById('customValidationActions').classList.contains('is-hidden') && !document.getElementById('publishCustomMapButton').disabled`), 'Edit/publish choices were not shown after creator validation.');
+  assert(await evaluate(`document.getElementById('toast').textContent === '' && !document.getElementById('toast').classList.contains('show')`), 'Finish-place toast remained visible after the run ended.');
   const customValidation = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().courseValidation`);
   assert(customValidation.checkpoints.every(Boolean) && customValidation.exit, 'Authored custom map has an invalid checkpoint or exit surface.');
+  await evaluate(`document.getElementById('editCustomMapButton').click()`);
+  assert(await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().state === 'custom' && !document.getElementById('customMapForm').classList.contains('is-hidden') && document.getElementById('customMapName').value === 'SMOKE LAB'`), 'Returning from test play did not restore the creator form.');
+  await evaluate(`document.getElementById('customMapForm').requestSubmit(); startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
+  await evaluate(`document.getElementById('publishCustomMapButton').click()`);
+  await sleep(250);
+  assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest + 1} && window.__communityRequests.some(item => item.body?.action === 'publish')`), 'Explicit publication did not register and share the verified map.');
   await evaluate(`document.getElementById('againButton').click(); startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
   assert(await evaluate(`!document.getElementById('customReviewForm').classList.contains('is-hidden')`), 'Custom-map review prompt was not shown after a verified run.');
-  await evaluate(`document.querySelector('[data-review-rating="5"]').click(); document.getElementById('customReviewText').value='바닥 변화가 재미있어요'; document.getElementById('customReviewForm').requestSubmit()`);
+  assert(await evaluate(`!document.getElementById('customReviewText')`), 'Written review field is still present.');
+  await evaluate(`document.querySelector('[data-review-rating="5"]').click(); document.getElementById('customReviewForm').requestSubmit()`);
+  await sleep(150);
   assert(await evaluate(`CustomMapStore.getRating(selectedCustomMap).average === 5 && CustomMapStore.getRating(selectedCustomMap).count >= 1`), 'Custom-map rating and review were not stored.');
   await evaluate(`document.getElementById('resultMenuButton').click(); document.querySelector('[data-map="0"]').click()`);
 

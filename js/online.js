@@ -30,7 +30,10 @@ const OnlineSession = (() => {
   };
   const uiReview = {
     form: $('customReviewForm'), name: $('customReviewMapName'), stars: $('customReviewStars'),
-    text: $('customReviewText'), submit: $('submitCustomReviewButton'), thanks: $('customReviewThanks')
+    submit: $('submitCustomReviewButton'), thanks: $('customReviewThanks')
+  };
+  const uiValidation = {
+    actions: $('customValidationActions'), edit: $('editCustomMapButton'), publish: $('publishCustomMapButton')
   };
 
   let trystero = null;
@@ -61,8 +64,42 @@ const OnlineSession = (() => {
   let browserRefreshTimer = 0;
   let connectingTimer = 0;
   let validationDraft = null;
+  let validationProof = null;
+  let validationRegistered = null;
   let activeReviewMap = null;
   let activeReviewRating = 0;
+  let communityMaps = [];
+  let communityLoading = false;
+  const MIGRATED_MAPS_KEY = 'slip-out-community-migrated-v1';
+
+  function communityClientId() {
+    const key = 'slip-out-community-client-v1';
+    try {
+      let value = localStorage.getItem(key);
+      if (!value) { value = crypto.randomUUID().replace(/-/g, ''); localStorage.setItem(key, value); }
+      return value;
+    } catch { return `guest_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`; }
+  }
+
+  async function communityRequest(body = null) {
+    const response = await fetch('/api/maps', body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '공유 맵 서버 요청에 실패했습니다.');
+    return data;
+  }
+
+  function migratedMapCodes() {
+    try { return new Set(JSON.parse(localStorage.getItem(MIGRATED_MAPS_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+
+  function rememberMigratedMap(code) {
+    try {
+      const codes = migratedMapCodes();
+      codes.add(code);
+      localStorage.setItem(MIGRATED_MAPS_KEY, JSON.stringify([...codes].slice(-100)));
+    } catch {}
+  }
 
   const cleanCode = value => String(value || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
   const mapLabel = settings => settings?.mapType === 'custom'
@@ -578,23 +615,24 @@ const OnlineSession = (() => {
   function onRunFinished(result) {
     const wasCreatorValidation = !!(validationDraft && selectedCustomMap?.id === validationDraft.id && role === 'offline');
     uiReview.form.classList.add('is-hidden');
+    uiValidation.actions.classList.add('is-hidden');
     if (wasCreatorValidation) {
       if (result?.full) {
-        try {
-          const registered = CustomMapStore.registerVerified(validationDraft, { fullClear: true, creatorTest: true, runId: activeRunId });
-          validationDraft = null;
-          configureCustomCourse(registered);
-          refreshCustomUi();
-          ui.resultEyebrow.textContent = 'MAP VERIFIED';
-          ui.resultTitle.textContent = '커스텀 맵 등록 완료';
-          ui.resultSummary.textContent = '제작자 클리어가 확인되었습니다. 이제 이 맵을 싱글과 멀티에서 플레이할 수 있습니다.';
-          ui.record.textContent = `VERIFIED · ${CustomMapStore.serialize(registered)}`;
-        } catch (error) { showToast(error.message, 3); }
+        validationProof = { fullClear: true, creatorTest: true, runId: activeRunId };
+        validationRegistered = null;
+        ui.resultEyebrow.textContent = 'CREATOR TEST CLEARED';
+        ui.resultTitle.textContent = '테스트 클리어';
+        ui.resultSummary.textContent = '아직 맵은 등록되지 않았습니다. 배치를 수정하거나 현재 상태로 공유 등록하세요.';
+        ui.record.textContent = 'CHOOSE EDIT OR PUBLISH';
+        uiValidation.actions.classList.remove('is-hidden');
+        uiValidation.publish.disabled = false;
       } else {
         ui.resultEyebrow.textContent = 'TEST NOT CLEARED';
         ui.resultTitle.textContent = '아직 등록되지 않았습니다';
         ui.resultSummary.textContent = '맵은 임시 테스트 상태입니다. 다시 도전해 직접 클리어하면 등록됩니다.';
         ui.record.textContent = 'CREATOR CLEAR REQUIRED';
+        uiValidation.actions.classList.remove('is-hidden');
+        uiValidation.publish.disabled = true;
       }
     }
     if (!wasCreatorValidation && selectedCustomMap?.verified) prepareCustomReview(selectedCustomMap);
@@ -607,7 +645,6 @@ const OnlineSession = (() => {
     activeReviewMap = map;
     activeReviewRating = 0;
     uiReview.name.textContent = `${map.name}은(는) 어땠나요?`;
-    uiReview.text.value = '';
     uiReview.thanks.textContent = '';
     uiReview.submit.disabled = true;
     uiReview.stars.querySelectorAll('[data-review-rating]').forEach(button => { button.classList.remove('is-selected'); button.textContent = '☆'; });
@@ -621,6 +658,49 @@ const OnlineSession = (() => {
       button.textContent = Number(button.dataset.reviewRating) <= activeReviewRating ? '★' : '☆';
     });
     uiReview.submit.disabled = activeReviewRating < 1;
+  }
+
+  function resumeCustomEditor() {
+    if (!validationDraft) return;
+    state = 'custom';
+    ui.results.classList.remove('is-visible');
+    ui.hud.classList.remove('is-visible');
+    uiValidation.actions.classList.add('is-hidden');
+    uiCustom.screen.classList.add('is-visible');
+    uiCustom.unlocked.classList.remove('is-hidden');
+    uiCustom.form.classList.remove('is-hidden');
+    uiCustom.name.value = validationDraft.name;
+    uiCustom.difficulty.value = String(validationDraft.difficulty);
+    editorLayout = JSON.parse(JSON.stringify(validationDraft.layout));
+    editorHistory = [];
+    validationProof = null;
+    validationRegistered = null;
+    renderCustomEditor();
+    updateMobileVisibility();
+  }
+
+  async function publishValidatedMap() {
+    if (!validationDraft || !validationProof) return;
+    uiValidation.publish.disabled = true;
+    try {
+      const registered = validationRegistered || CustomMapStore.registerVerified(validationDraft, validationProof);
+      validationRegistered = registered;
+      const code = CustomMapStore.serialize(registered);
+      await communityRequest({ action: 'publish', code, map: registered });
+      rememberMigratedMap(code);
+      validationDraft = null; validationProof = null; validationRegistered = null;
+      configureCustomCourse(registered);
+      await loadCommunityMaps();
+      ui.resultEyebrow.textContent = 'MAP PUBLISHED';
+      ui.resultTitle.textContent = '공유 맵 등록 완료';
+      ui.resultSummary.textContent = '모든 이용자가 이 맵을 목록에서 플레이하고 별점이나 신고를 남길 수 있습니다.';
+      ui.record.textContent = `PUBLISHED · ${code}`;
+      uiValidation.actions.classList.add('is-hidden');
+      showToast('커스텀 맵이 공유 서버에 등록되었습니다.', 3);
+    } catch (error) {
+      uiValidation.publish.disabled = false;
+      showToast(error.message, 3.5);
+    }
   }
 
   function leaveRoom(resetState = true) {
@@ -764,7 +844,7 @@ const OnlineSession = (() => {
     const background = context.createLinearGradient(0, 0, 0, height);
     background.addColorStop(0, '#071521'); background.addColorStop(1, '#02070d');
     context.fillStyle = background; context.fillRect(0, 0, width, height);
-    context.fillStyle = '#113145'; context.strokeStyle = 'rgba(84,245,255,.28)'; context.lineWidth = 2;
+    context.fillStyle = '#030811'; context.strokeStyle = 'rgba(84,245,255,.28)'; context.lineWidth = 2;
     context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.fill(); context.stroke();
     context.save(); context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.clip();
     for (const floor of editorLayout.floors) {
@@ -798,48 +878,97 @@ const OnlineSession = (() => {
   function beginCustomValidation() {
     const draft = CustomMapStore.createDraft({ name: uiCustom.name.value, difficulty: Number(uiCustom.difficulty.value), layout: editorLayout });
     validationDraft = draft;
+    validationProof = null;
+    validationRegistered = null;
     selectedPlayers = 1;
     selectedMode = 'normal';
     document.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('selected', button.dataset.mode === 'normal'));
     configureCustomCourse(draft);
     closeCustomMaps();
     startGame();
-    showToast('제작자 테스트 시작 · 직접 클리어하면 맵이 등록됩니다.', 3.2);
+    showToast('제작자 테스트 시작 · 클리어 후 수정 또는 등록을 선택합니다.', 3.2);
   }
 
-  function refreshCustomUi() {
+  function combinedCustomMaps() {
+    const byCode = new Map();
+    CustomMapStore.list().forEach(map => byCode.set(CustomMapStore.serialize(map), map));
+    communityMaps.forEach(map => byCode.set(map.communityCode || CustomMapStore.serialize(map), map));
+    return [...byCode.values()];
+  }
+
+  function findPlayableMap(value) {
+    return communityMaps.find(map => map.communityCode === value || map.id === value)
+      || CustomMapStore.get(value)
+      || CustomMapStore.deserialize(value);
+  }
+
+  function renderCustomMapList() {
+    const maps = combinedCustomMaps();
+    uiCustom.unlockLabel.textContent = `${maps.length}개 공유됨`;
+    uiCustom.list.innerHTML = maps.length ? maps.map(map => {
+      const code = map.communityCode || CustomMapStore.serialize(map);
+      const localRating = CustomMapStore.getRating(map);
+      const rating = map.rating || localRating;
+      const stars = rating.count ? `${'★'.repeat(Math.round(rating.average))}${'☆'.repeat(5 - Math.round(rating.average))}` : '☆☆☆☆☆';
+      return `<article class="custom-map-item" data-custom-id="${code}">
+        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>✓ SHARED · DIFFICULTY ${map.difficulty} · MAP ID ${code} · ${map.layout.objects.length} ELEMENTS · ${(map.layout.floors || []).length} FLOORS</small><div class="custom-map-rating"><strong>${stars}</strong><span>${rating.count ? `${Number(rating.average).toFixed(1)} · 별점 ${rating.count}개` : '아직 별점이 없습니다'}</span></div></div>
+        <div class="custom-map-actions"><button type="button" data-custom-single="${code}">SINGLE PLAY</button><button type="button" data-custom-multi="${code}">MULTI PLAY</button><button class="report-custom" type="button" data-custom-report="${code}">신고</button></div>
+      </article>`;
+    }).join('') : `<p class="empty-room-list">${communityLoading ? '공유 맵을 불러오는 중입니다…' : '아직 등록된 공유 맵이 없습니다.<br>새 맵을 만들고 테스트한 뒤 등록하세요.'}</p>`;
+    uiCustom.list.querySelectorAll('[data-custom-single]').forEach(button => button.addEventListener('click', () => playCustomSingle(button.dataset.customSingle)));
+    uiCustom.list.querySelectorAll('[data-custom-multi]').forEach(button => button.addEventListener('click', () => playCustomMulti(button.dataset.customMulti)));
+    uiCustom.list.querySelectorAll('[data-custom-report]').forEach(button => button.addEventListener('click', async () => {
+      if (!confirm('이 맵을 운영자에게 신고할까요? 한 기기에서 한 번만 집계됩니다.')) return;
+      button.disabled = true;
+      try {
+        const result = await communityRequest({ action: 'report', code: button.dataset.customReport, clientId: communityClientId() });
+        showToast(result.counted ? '신고가 접수되었습니다.' : '이미 신고한 맵입니다.');
+      } catch (error) { button.disabled = false; showToast(error.message); }
+    }));
+  }
+
+  async function loadCommunityMaps() {
+    if (communityLoading) return;
+    communityLoading = true; renderCustomMapList();
+    try {
+      const data = await communityRequest();
+      communityMaps = Array.isArray(data.maps) ? data.maps.filter(map => CustomMapStore.validateMap(map)) : [];
+      const known = new Set(communityMaps.map(map => map.communityCode));
+      const migrated = migratedMapCodes();
+      const pending = CustomMapStore.list().filter(map => {
+        const code = CustomMapStore.serialize(map);
+        return !known.has(code) && !migrated.has(code) && map.layout.floors?.length;
+      });
+      if (pending.length) {
+        await Promise.all(pending.map(async map => {
+          const code = CustomMapStore.serialize(map);
+          try { await communityRequest({ action: 'publish', code, map }); rememberMigratedMap(code); }
+          catch {}
+        }));
+        const refreshed = await communityRequest();
+        communityMaps = Array.isArray(refreshed.maps) ? refreshed.maps.filter(map => CustomMapStore.validateMap(map)) : communityMaps;
+      }
+    } catch (error) { showToast(`공유 맵 연결 실패 · ${error.message}`, 3); }
+    finally { communityLoading = false; renderCustomMapList(); }
+  }
+
+  function refreshCustomUi(loadShared = false) {
     const progress = CustomMapStore.getUnlockProgress();
     uiCustom.locked.classList.toggle('is-hidden', progress.unlocked);
     uiCustom.unlocked.classList.toggle('is-hidden', !progress.unlocked);
     uiCustom.progress.textContent = `${Math.min(progress.fullClears, progress.requiredClears)} / ${progress.requiredClears} CLEAR`;
-    uiCustom.unlockLabel.textContent = progress.unlocked ? `${CustomMapStore.list().length}개 저장됨` : `${progress.fullClears} / ${progress.requiredClears} 클리어`;
+    uiCustom.unlockLabel.textContent = progress.unlocked ? `${combinedCustomMaps().length}개 공유됨` : `${progress.fullClears} / ${progress.requiredClears} 클리어`;
     uiCustom.menuButton.classList.toggle('is-locked', !progress.unlocked);
     uiCustom.menuButton.classList.toggle('is-unlocked', progress.unlocked);
     if (!progress.unlocked) return;
-    const maps = CustomMapStore.list();
-    uiCustom.list.innerHTML = maps.length ? maps.map(map => {
-      const code = CustomMapStore.serialize(map);
-      const rating = CustomMapStore.getRating(map);
-      const recent = rating.reviews.find(review => review.text);
-      const stars = rating.count ? `${'★'.repeat(Math.round(rating.average))}${'☆'.repeat(5 - Math.round(rating.average))}` : '☆☆☆☆☆';
-      return `<article class="custom-map-item" data-custom-id="${map.id}">
-        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>✓ CREATOR CLEARED · DIFFICULTY ${map.difficulty} · MAP ID ${code} · ${map.layout.objects.length} ELEMENTS · ${(map.layout.floors || []).length} FLOOR PATCHES</small><div class="custom-map-rating"><strong>${stars}</strong><span>${rating.count ? `${rating.average.toFixed(1)} · 리뷰 ${rating.count}개` : '아직 리뷰가 없습니다'}</span></div>${recent ? `<p class="custom-map-review-quote">“${escapeHtml(recent.text)}”</p>` : ''}</div>
-        <div class="custom-map-actions"><button type="button" data-custom-single="${map.id}">SINGLE PLAY</button><button type="button" data-custom-multi="${map.id}">MULTI PLAY</button><button class="delete-custom" type="button" data-custom-delete="${map.id}" aria-label="맵 삭제">×</button></div>
-      </article>`;
-    }).join('') : '<p class="empty-room-list">아직 검증을 마친 맵이 없습니다.<br>맵을 직접 만든 뒤 테스트 플레이를 클리어해 등록하세요.</p>';
-    uiCustom.list.querySelectorAll('[data-custom-single]').forEach(button => button.addEventListener('click', () => playCustomSingle(button.dataset.customSingle)));
-    uiCustom.list.querySelectorAll('[data-custom-multi]').forEach(button => button.addEventListener('click', () => playCustomMulti(button.dataset.customMulti)));
-    uiCustom.list.querySelectorAll('[data-custom-delete]').forEach(button => button.addEventListener('click', () => {
-      CustomMapStore.remove(button.dataset.customDelete);
-      refreshCustomUi();
-      showToast('커스텀 맵을 삭제했습니다.');
-    }));
+    renderCustomMapList();
+    if (loadShared) loadCommunityMaps();
   }
 
   function openCustomMaps() {
     if (state !== 'menu') return;
     state = 'custom';
-    refreshCustomUi();
+    refreshCustomUi(true);
     uiCustom.form.classList.add('is-hidden');
     uiCustom.screen.classList.add('is-visible');
   }
@@ -851,7 +980,7 @@ const OnlineSession = (() => {
   }
 
   function playCustomSingle(id) {
-    const map = CustomMapStore.get(id);
+    const map = findPlayableMap(id);
     if (!map) return;
     validationDraft = null;
     selectedPlayers = 1;
@@ -861,7 +990,7 @@ const OnlineSession = (() => {
   }
 
   function playCustomMulti(id) {
-    const map = CustomMapStore.get(id);
+    const map = findPlayableMap(id);
     if (!map) return;
     validationDraft = null;
     closeCustomMaps();
@@ -923,21 +1052,25 @@ const OnlineSession = (() => {
       beginCustomValidation();
     } catch (error) { showToast(error.message); }
   });
+  uiValidation.edit.addEventListener('click', resumeCustomEditor);
+  uiValidation.publish.addEventListener('click', publishValidatedMap);
   uiReview.stars.querySelectorAll('[data-review-rating]').forEach(button => button.addEventListener('click', () => selectReviewRating(button.dataset.reviewRating)));
-  uiReview.form.addEventListener('submit', event => {
+  uiReview.form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!activeReviewMap || activeReviewRating < 1) return;
     try {
-      const rating = CustomMapStore.addReview(activeReviewMap, { rating: activeReviewRating, text: uiReview.text.value, runId: activeRunId });
+      const rating = CustomMapStore.addReview(activeReviewMap, { rating: activeReviewRating, runId: activeRunId });
+      const code = CustomMapStore.serialize(activeReviewMap);
+      await communityRequest({ action: 'rate', code, clientId: communityClientId(), rating: activeReviewRating });
       if (role === 'guest' && actions && hostId) {
         actions.control.send({
           type: 'customReview', mapCode: CustomMapStore.serialize(activeReviewMap), rating: activeReviewRating,
-          text: uiReview.text.value, runId: activeRunId
+          runId: activeRunId
         }, { target: hostId });
       }
-      uiReview.thanks.textContent = `평가가 저장되었습니다${role === 'guest' ? ' · 방장에게도 전달됨' : ''} · 평균 ${rating.average.toFixed(1)} (${rating.count}명)`;
+      uiReview.thanks.textContent = `별점이 저장되었습니다 · 내 기기 평균 ${rating.average.toFixed(1)}`;
       uiReview.submit.disabled = true;
-      refreshCustomUi();
+      loadCommunityMaps();
     } catch (error) { showToast(error.message); }
   });
   addEventListener('keydown', event => {

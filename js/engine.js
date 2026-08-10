@@ -181,6 +181,7 @@ function isHole(x, y) {
     ui.pause.classList.remove('is-visible');
     ui.settings.classList.remove('is-visible');
     ui.tutorial.classList.remove('is-visible');
+    clearToast();
     ui.reviveChoice.classList.remove('show');
     ui.hud.classList.add('is-visible');
     buildPlayerHud();
@@ -203,6 +204,7 @@ function isHole(x, y) {
     ui.reviveChoice.classList.remove('show');
     ui.tutorial.classList.remove('is-visible');
     ui.tutorialCoach.classList.remove('is-visible');
+    clearToast();
     updateMobileVisibility();
     camera.x = 800; camera.y = 800; camera.zoom = .9;
   }
@@ -260,6 +262,12 @@ function isHole(x, y) {
     ui.toast.textContent = message;
     ui.toast.classList.add('show');
     toastTimer = duration;
+  }
+
+  function clearToast() {
+    toastTimer = 0;
+    ui.toast.textContent = '';
+    ui.toast.classList.remove('show');
   }
 
   function spawnParticles(x, y, color, count = 12, speed = 150) {
@@ -882,6 +890,7 @@ function isHole(x, y) {
     if (state !== 'playing') return;
     if (tutorialSession.active) return;
     state = 'results';
+    clearToast();
     const participants = players.filter(p => !p.disconnected);
     const escaped = participants.filter(p => p.escaped).length;
     const full = participants.length > 0 && escaped === participants.length;

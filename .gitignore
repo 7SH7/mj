@@ -3,4 +3,7 @@
 .edge-*
 .npm-cache/
 .vendor-build/
+node_modules/
 trystero-*.tgz
+
+.env*

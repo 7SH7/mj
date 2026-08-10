@@ -289,10 +289,13 @@
           <div id="customReviewStars" class="custom-review-stars" role="group" aria-label="별점 선택">
             <button type="button" data-review-rating="1" aria-label="1점">☆</button><button type="button" data-review-rating="2" aria-label="2점">☆</button><button type="button" data-review-rating="3" aria-label="3점">☆</button><button type="button" data-review-rating="4" aria-label="4점">☆</button><button type="button" data-review-rating="5" aria-label="5점">☆</button>
           </div>
-          <textarea id="customReviewText" maxlength="120" rows="2" placeholder="좋았던 점이나 아쉬웠던 점을 남겨주세요 (선택)"></textarea>
-          <button id="submitCustomReviewButton" class="secondary-button" type="submit" disabled>평가 남기기</button>
+          <button id="submitCustomReviewButton" class="secondary-button" type="submit" disabled>별점 남기기</button>
           <p id="customReviewThanks" class="custom-review-thanks"></p>
         </form>
+        <div id="customValidationActions" class="custom-validation-actions is-hidden">
+          <button id="editCustomMapButton" class="secondary-button" type="button">← 맵 수정으로 돌아가기</button>
+          <button id="publishCustomMapButton" class="primary-button" type="button">공유 맵으로 등록하기</button>
+        </div>
         <button id="againButton" class="primary-button" type="button">한 번 더 <kbd>ENTER</kbd></button>
         <button id="resultMenuButton" class="text-button" type="button">메인 메뉴</button>
       </div>

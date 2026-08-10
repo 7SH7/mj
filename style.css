@@ -569,6 +569,27 @@ kbd, .keycap {
 .custom-review-form textarea:focus { border-color: rgba(255,216,90,.5); }
 .custom-review-form .secondary-button { margin: 0; min-height: 34px; }
 .custom-review-thanks { min-height: 12px; margin: 0; color: var(--lime); font-size: 8px; }
+.custom-validation-actions { margin: 12px 0; display: grid; grid-template-columns: 1fr 1.25fr; gap: 7px; }
+.custom-validation-actions .primary-button, .custom-validation-actions .secondary-button { margin: 0; min-height: 42px; }
+
+.admin-body { min-height: 100%; overflow-y: auto; background: radial-gradient(circle at 30% 0, #112c3d, #050811 62%); color: var(--ink); }
+.admin-shell { width: min(980px, calc(100% - 28px)); margin: 0 auto; padding: 50px 0; }
+.admin-card { width: min(440px, 100%); margin: 0 auto; padding: 30px; }
+.admin-card h1 { margin: 4px 0 24px; font: 900 42px "Arial Black", Impact, sans-serif; }
+.admin-panel { width: 100%; }
+.admin-panel .modal-heading h1 { margin: 3px 0 0; font-size: 32px; }
+.admin-panel .modal-heading .secondary-button, .admin-panel > .secondary-button { width: auto; margin: 0; }
+.admin-copy { color: var(--muted); font-size: 10px; }
+.admin-map-list { margin-top: 18px; display: grid; gap: 8px; }
+.admin-map-row { padding: 13px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; border: 1px solid rgba(255,255,255,.09); background: rgba(2,9,17,.62); }
+.admin-map-row b, .admin-map-row small { display: block; }
+.admin-map-row b { font-size: 11px; }
+.admin-map-row small { margin-top: 4px; color: #6f8796; font-size: 8px; }
+.admin-map-row strong { color: #748895; font: 700 10px "IBM Plex Mono", monospace; }
+.admin-map-row strong.is-actionable { color: var(--danger); }
+.admin-map-row button { min-height: 34px; padding: 0 10px; border: 1px solid var(--danger); background: rgba(255,77,120,.1); color: #ff8aa5; cursor: pointer; }
+.admin-map-row button:disabled { opacity: .35; cursor: not-allowed; }
+.admin-error { min-height: 18px; color: var(--danger); font-size: 9px; }
 
 .mobile-controls { position: fixed; inset: 0; z-index: 8; display: none; pointer-events: none; touch-action: none; }
 .joystick { position: absolute; left: max(24px, env(safe-area-inset-left)); bottom: max(28px, env(safe-area-inset-bottom)); width: 132px; height: 132px; border-radius: 50%; border: 2px solid rgba(84,245,255,.28); background: radial-gradient(circle, rgba(48,112,130,.24), rgba(4,13,23,.58)); box-shadow: inset 0 0 28px rgba(84,245,255,.08); pointer-events: auto; touch-action: none; }

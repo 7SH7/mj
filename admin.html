@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>SLIP OUT · MAP ADMIN</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="admin-body">
+  <main class="admin-shell">
+    <section id="adminLogin" class="admin-card glass">
+      <p class="eyebrow">MAP MODERATION</p><h1>ADMIN</h1>
+      <form id="adminLoginForm"><label class="field-label">ID<input id="adminId" autocomplete="username" required></label><label class="field-label">PASSWORD<input id="adminPassword" type="password" autocomplete="current-password" required></label><button class="primary-button" type="submit">로그인</button><p id="adminLoginError" class="admin-error"></p></form>
+    </section>
+    <section id="adminPanel" class="admin-card admin-panel glass is-hidden">
+      <div class="modal-heading"><div><p class="eyebrow">MAP MODERATION</p><h1>신고 관리</h1></div><button id="adminLogout" class="secondary-button" type="button">로그아웃</button></div>
+      <p class="admin-copy">신고 10회 이상인 커스텀 맵만 운영자가 영구 삭제할 수 있습니다.</p>
+      <button id="adminRefresh" class="secondary-button" type="button">새로고침</button>
+      <div id="adminMapList" class="admin-map-list"></div>
+    </section>
+  </main>
+  <script src="js/admin.js"></script>
+</body>
+</html>

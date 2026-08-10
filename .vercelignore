@@ -1,6 +1,10 @@
 .git
 .omc
 .vercel
+.edge-*
+.npm-cache
+.vendor-build
+node_modules
 tests
 *.pdf
 README.md
