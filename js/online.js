@@ -15,7 +15,7 @@ const OnlineSession = (() => {
     createForm: $('createRoomForm'), findForm: $('findRoomForm'), lobby: $('roomLobby'),
     publicList: $('publicRoomList'), status: $('networkStatusText'), statusDot: $('networkStatusDot'),
     createButton: $('createRoomButton'), findButton: $('findRoomButton'), refresh: $('refreshRoomsButton'),
-    newCode: $('newRoomCode'), capacity: $('roomCapacity'), codeInput: $('roomCodeInput'),
+    newCode: $('newRoomCode'), capacity: $('roomCapacity'), course: $('roomCourse'), codeInput: $('roomCodeInput'),
     createMapLabel: $('createMapLabel'), copyCode: $('copyRoomCodeButton'),
     visibility: $('roomVisibilityLabel'), lobbyMap: $('lobbyMapName'), players: $('lobbyPlayers'),
     hint: $('lobbyHint'), hostStart: $('hostStartButton'), leave: $('leaveRoomButton')
@@ -27,6 +27,10 @@ const OnlineSession = (() => {
     cancelCreator: $('cancelCustomCreatorButton'), name: $('customMapName'), difficulty: $('customMapDifficulty'),
     list: $('customMapList'), editor: $('customMapEditor'), editorTools: $('customEditorTools'),
     editorStatus: $('customEditorStatus'), undo: $('undoCustomEditButton'), clear: $('clearCustomEditButton')
+  };
+  const uiReview = {
+    form: $('customReviewForm'), name: $('customReviewMapName'), stars: $('customReviewStars'),
+    text: $('customReviewText'), submit: $('submitCustomReviewButton'), thanks: $('customReviewThanks')
   };
 
   let trystero = null;
@@ -57,6 +61,8 @@ const OnlineSession = (() => {
   let browserRefreshTimer = 0;
   let connectingTimer = 0;
   let validationDraft = null;
+  let activeReviewMap = null;
+  let activeReviewRating = 0;
 
   const cleanCode = value => String(value || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
   const mapLabel = settings => settings?.mapType === 'custom'
@@ -95,14 +101,14 @@ const OnlineSession = (() => {
     [uiOnline.browser, uiOnline.createForm, uiOnline.findForm, uiOnline.lobby].forEach(item => item.classList.toggle('is-hidden', item !== view));
   }
 
-  function currentSettings(map = pendingMap) {
+  function currentSettings(map = pendingMap, mapIndex = selectedMap) {
     if (map) {
       return {
         mode: selectedMode, mapType: 'custom', mapIndex: clamp(map.difficulty - 1, 0, 4),
         customCode: CustomMapStore.serialize(map), customName: map.name, customMap: map
       };
     }
-    return { mode: selectedMode, mapType: 'preset', mapIndex: selectedMap };
+    return { mode: selectedMode, mapType: 'preset', mapIndex: clamp(Number(mapIndex) || 0, 0, 4) };
   }
 
   function applySettings(settings) {
@@ -211,7 +217,9 @@ const OnlineSession = (() => {
     pendingMap = map;
     roomCode = randomCode();
     uiOnline.newCode.textContent = roomCode;
-    uiOnline.createMapLabel.textContent = mapLabel(currentSettings(map));
+    uiOnline.course.disabled = !!map;
+    uiOnline.course.value = String(map ? clamp(map.difficulty - 1, 0, 4) : selectedMap);
+    uiOnline.createMapLabel.textContent = mapLabel(currentSettings(map, uiOnline.course.value));
     showChannelView(uiOnline.createForm);
   }
 
@@ -282,8 +290,11 @@ const OnlineSession = (() => {
         peerSlots.delete(peerId);
         remoteInputs.delete(slot);
         roster = roster.filter(item => item.peerId !== peerId);
-        if (phase === 'playing' && players[slot] && !players[slot].downed && !players[slot].escaped) downPlayer(players[slot], '연결 종료');
-        else compactLobbySlots();
+        if (phase === 'playing' && slot != null) {
+          removePlayerFromRun(slot);
+          actions?.control.send({ type: 'playerLeft', slot });
+          showToast(`P${slot + 1}님이 게임에서 나갔습니다.`, 3);
+        } else compactLobbySlots();
         broadcastRoster();
       } else if (peerId === hostId) {
         leaveRoom(false);
@@ -377,6 +388,18 @@ const OnlineSession = (() => {
         if (!player?.downed || !player.awaitingReviveChoice) return;
         const rescuer = players.find(candidate => candidate.id === player.reviveRescuerId);
         revivePlayer(player, rescuer, message.choice === 'checkpoint' ? 'checkpoint' : 'core');
+      } else if (message.type === 'customReview' && selectedCustomMap?.verified) {
+        const slot = peerSlots.get(peerId);
+        const expectedCode = CustomMapStore.serialize(selectedCustomMap);
+        if (slot == null || message.mapCode !== expectedCode) return;
+        try {
+          CustomMapStore.addReview(selectedCustomMap, {
+            rating: Number(message.rating), text: String(message.text || ''),
+            runId: `${peerId}:${String(message.runId || '').slice(0, 60)}`
+          });
+          refreshCustomUi();
+          showToast(`P${slot + 1}의 커스텀 맵 평가가 도착했습니다.`, 2.5);
+        } catch { /* malformed peer reviews are ignored */ }
       }
       return;
     }
@@ -394,6 +417,10 @@ const OnlineSession = (() => {
       roster = message.roster || roster;
       capacity = message.capacity || capacity;
       renderLobby();
+    } else if (message.type === 'playerLeft' && peerId === hostId) {
+      const slot = clamp(Number(message.slot) || 0, 0, 3);
+      removePlayerFromRun(slot);
+      showToast(`P${slot + 1}님이 게임에서 나갔습니다.`, 3);
     } else if (message.type === 'start' && peerId === hostId) {
       startGuestRun(message.settings, message.playerCount);
     } else if (message.type === 'result' && peerId === hostId) {
@@ -463,7 +490,7 @@ const OnlineSession = (() => {
         brakeCharges: player.brakeCharges, brakeRegen: player.brakeRegen, brakeTimer: player.brakeTimer,
         jumpCooldown: player.jumpCooldown, jumpCooldownMax: player.jumpCooldownMax,
         boostCooldown: player.boostCooldown, boostCooldownMax: player.boostCooldownMax,
-        padCooldown: player.padCooldown, downed: player.downed, escaped: player.escaped,
+        padCooldown: player.padCooldown, downed: player.downed, escaped: player.escaped, disconnected: !!player.disconnected,
         finishPlace: player.finishPlace, finishTime: player.finishTime, coreX: player.coreX, coreY: player.coreY,
         lastGroundX: player.lastGroundX, lastGroundY: player.lastGroundY, exitHold: player.exitHold,
         zone: player.zone, awaitingReviveChoice: player.awaitingReviveChoice,
@@ -497,7 +524,9 @@ const OnlineSession = (() => {
         const player = players[index];
         const oldX = player.x, oldY = player.y;
         const wasAwaitingRevive = player.awaitingReviveChoice;
+        const wasDisconnected = !!player.disconnected;
         Object.assign(player, incoming);
+        if (!wasDisconnected && player.disconnected) buildPlayerHud();
         if (!wasAwaitingRevive && player.awaitingReviveChoice) {
           showToast(`P${player.id + 1} 코어 접촉 완료 · 부활 위치 선택 대기`, 2.2);
           sound.tone(440, .12, 'sine', .018, 880);
@@ -547,7 +576,9 @@ const OnlineSession = (() => {
   }
 
   function onRunFinished(result) {
-    if (validationDraft && selectedCustomMap?.id === validationDraft.id && role === 'offline') {
+    const wasCreatorValidation = !!(validationDraft && selectedCustomMap?.id === validationDraft.id && role === 'offline');
+    uiReview.form.classList.add('is-hidden');
+    if (wasCreatorValidation) {
       if (result?.full) {
         try {
           const registered = CustomMapStore.registerVerified(validationDraft, { fullClear: true, creatorTest: true, runId: activeRunId });
@@ -566,9 +597,30 @@ const OnlineSession = (() => {
         ui.record.textContent = 'CREATOR CLEAR REQUIRED';
       }
     }
+    if (!wasCreatorValidation && selectedCustomMap?.verified) prepareCustomReview(selectedCustomMap);
     if (role !== 'host' || !actions) return;
     phase = 'results';
     actions.control.send({ type: 'result', snapshot: captureSnapshot() });
+  }
+
+  function prepareCustomReview(map) {
+    activeReviewMap = map;
+    activeReviewRating = 0;
+    uiReview.name.textContent = `${map.name}은(는) 어땠나요?`;
+    uiReview.text.value = '';
+    uiReview.thanks.textContent = '';
+    uiReview.submit.disabled = true;
+    uiReview.stars.querySelectorAll('[data-review-rating]').forEach(button => { button.classList.remove('is-selected'); button.textContent = '☆'; });
+    uiReview.form.classList.remove('is-hidden');
+  }
+
+  function selectReviewRating(rating) {
+    activeReviewRating = clamp(Number(rating) || 0, 0, 5);
+    uiReview.stars.querySelectorAll('[data-review-rating]').forEach(button => {
+      button.classList.toggle('is-selected', Number(button.dataset.reviewRating) <= activeReviewRating);
+      button.textContent = Number(button.dataset.reviewRating) <= activeReviewRating ? '★' : '☆';
+    });
+    uiReview.submit.disabled = activeReviewRating < 1;
   }
 
   function leaveRoom(resetState = true) {
@@ -595,10 +647,11 @@ const OnlineSession = (() => {
 
   const editorColors = {
     checkpoint: '#54f5ff', pillar: '#98b8c6', bumper: '#ffb95a', rotor: '#ff5c8d',
-    shockwave: '#c889ff', laser: '#ff4d78', gate: '#ff8458', boost: '#ffd85a', hole: '#172733', enemy: '#ff4d78'
+    shockwave: '#c889ff', laser: '#ff4d78', gate: '#ff8458', boost: '#ffd85a', hole: '#172733', enemy: '#ff4d78',
+    safe: '#65e6b7', ice: '#54f5ff', black: '#3d485c'
   };
   let editorTool = 'spawn';
-  let editorLayout = { spawn: null, exit: null, objects: [] };
+  let editorLayout = { spawn: null, exit: null, floors: [], objects: [] };
   let editorHistory = [];
 
   const copyEditorLayout = () => JSON.parse(JSON.stringify(editorLayout));
@@ -606,7 +659,7 @@ const OnlineSession = (() => {
 
   function resetCustomEditor() {
     editorTool = 'spawn';
-    editorLayout = { spawn: null, exit: null, objects: [] };
+    editorLayout = { spawn: null, exit: null, floors: [], objects: [] };
     editorHistory = [];
     selectEditorTool('spawn');
     renderCustomEditor();
@@ -634,15 +687,17 @@ const OnlineSession = (() => {
     const candidates = [
       ...(editorLayout.spawn ? [{ kind: 'spawn', value: editorLayout.spawn }] : []),
       ...(editorLayout.exit ? [{ kind: 'exit', value: editorLayout.exit }] : []),
+      ...editorLayout.floors.map((value, index) => ({ kind: 'floor', value: { x: value.x + value.w / 2, y: value.y + value.h / 2 }, index })),
       ...editorLayout.objects.map((value, index) => ({ kind: 'object', value, index }))
     ];
     const nearest = candidates.reduce((best, item) => {
       const distance = Math.hypot(item.value.x - position.x, item.value.y - position.y);
       return !best || distance < best.distance ? { ...item, distance } : best;
     }, null);
-    if (!nearest || nearest.distance > 230) return false;
+    if (!nearest || nearest.distance > (nearest.kind === 'floor' ? 460 : 230)) return false;
     if (nearest.kind === 'spawn') editorLayout.spawn = null;
     else if (nearest.kind === 'exit') editorLayout.exit = null;
+    else if (nearest.kind === 'floor') editorLayout.floors.splice(nearest.index, 1);
     else editorLayout.objects.splice(nearest.index, 1);
     return true;
   }
@@ -653,6 +708,16 @@ const OnlineSession = (() => {
       if (!eraseEditorPoint(position)) editorHistory.pop();
     } else if (editorTool === 'spawn') editorLayout.spawn = position;
     else if (editorTool === 'exit') editorLayout.exit = { ...position, r: 118 };
+    else if (editorTool.startsWith('floor-')) {
+      if (editorLayout.floors.length >= CustomMapStore.MAX_FLOORS) {
+        editorHistory.pop(); showToast(`바닥 패치는 최대 ${CustomMapStore.MAX_FLOORS}개입니다.`);
+      } else {
+        editorLayout.floors.push({
+          x: clamp(position.x - 400, 80, 7720), y: clamp(position.y - 200, 180, 1020),
+          w: 800, h: 400, type: editorTool.slice(6), zone: 0
+        });
+      }
+    }
     else if (editorLayout.objects.length < CustomMapStore.MAX_OBJECTS) editorLayout.objects.push({ type: editorTool, ...position });
     else { editorHistory.pop(); showToast(`배치 요소는 최대 ${CustomMapStore.MAX_OBJECTS}개입니다.`); }
     renderCustomEditor();
@@ -702,6 +767,15 @@ const OnlineSession = (() => {
     context.fillStyle = '#113145'; context.strokeStyle = 'rgba(84,245,255,.28)'; context.lineWidth = 2;
     context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.fill(); context.stroke();
     context.save(); context.beginPath(); context.roundRect(8, 36, width - 16, height - 72, 10); context.clip();
+    for (const floor of editorLayout.floors) {
+      const x = floor.x / WORLD.width * width, y = floor.y / WORLD.height * height;
+      const w = floor.w / WORLD.width * width, h = floor.h / WORLD.height * height;
+      context.fillStyle = `${editorColors[floor.type]}55`;
+      context.strokeStyle = `${editorColors[floor.type]}bb`;
+      context.lineWidth = 1.5; context.fillRect(x, y, w, h); context.strokeRect(x, y, w, h);
+      context.fillStyle = editorColors[floor.type]; context.font = '700 7px monospace';
+      context.fillText(floor.type.toUpperCase(), x + 4, y + 10);
+    }
     context.strokeStyle = 'rgba(84,245,255,.08)'; context.lineWidth = 1;
     for (let x = 0; x <= WORLD.width; x += 500) { const px = x / WORLD.width * width; context.beginPath(); context.moveTo(px, 36); context.lineTo(px, height - 36); context.stroke(); }
     for (let y = 300; y <= 1300; y += 200) { const py = y / WORLD.height * height; context.beginPath(); context.moveTo(8, py); context.lineTo(width - 8, py); context.stroke(); }
@@ -745,8 +819,11 @@ const OnlineSession = (() => {
     const maps = CustomMapStore.list();
     uiCustom.list.innerHTML = maps.length ? maps.map(map => {
       const code = CustomMapStore.serialize(map);
+      const rating = CustomMapStore.getRating(map);
+      const recent = rating.reviews.find(review => review.text);
+      const stars = rating.count ? `${'★'.repeat(Math.round(rating.average))}${'☆'.repeat(5 - Math.round(rating.average))}` : '☆☆☆☆☆';
       return `<article class="custom-map-item" data-custom-id="${map.id}">
-        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>✓ CREATOR CLEARED · DIFFICULTY ${map.difficulty} · MAP ID ${code} · ${map.layout.objects.length} ELEMENTS</small></div>
+        <div class="custom-map-info"><b>${escapeHtml(map.name)}</b><small>✓ CREATOR CLEARED · DIFFICULTY ${map.difficulty} · MAP ID ${code} · ${map.layout.objects.length} ELEMENTS · ${(map.layout.floors || []).length} FLOOR PATCHES</small><div class="custom-map-rating"><strong>${stars}</strong><span>${rating.count ? `${rating.average.toFixed(1)} · 리뷰 ${rating.count}개` : '아직 리뷰가 없습니다'}</span></div>${recent ? `<p class="custom-map-review-quote">“${escapeHtml(recent.text)}”</p>` : ''}</div>
         <div class="custom-map-actions"><button type="button" data-custom-single="${map.id}">SINGLE PLAY</button><button type="button" data-custom-multi="${map.id}">MULTI PLAY</button><button class="delete-custom" type="button" data-custom-delete="${map.id}" aria-label="맵 삭제">×</button></div>
       </article>`;
     }).join('') : '<p class="empty-room-list">아직 검증을 마친 맵이 없습니다.<br>맵을 직접 만든 뒤 테스트 플레이를 클리어해 등록하세요.</p>';
@@ -807,7 +884,10 @@ const OnlineSession = (() => {
   uiOnline.createForm.addEventListener('submit', event => {
     event.preventDefault();
     const visibility = document.querySelector('input[name="roomVisibility"]:checked')?.value || 'public';
-    hostRoom({ code: roomCode, capacity: uiOnline.capacity.value, public: visibility === 'public', settings: currentSettings(pendingMap) }).catch(error => showToast(error.message));
+    hostRoom({ code: roomCode, capacity: uiOnline.capacity.value, public: visibility === 'public', settings: currentSettings(pendingMap, uiOnline.course.value) }).catch(error => showToast(error.message));
+  });
+  uiOnline.course.addEventListener('change', () => {
+    uiOnline.createMapLabel.textContent = mapLabel(currentSettings(pendingMap, uiOnline.course.value));
   });
   uiOnline.findForm.addEventListener('submit', event => { event.preventDefault(); joinRoom(uiOnline.codeInput.value); });
   uiOnline.codeInput.addEventListener('input', () => { uiOnline.codeInput.value = cleanCode(uiOnline.codeInput.value); });
@@ -841,6 +921,23 @@ const OnlineSession = (() => {
     event.preventDefault();
     try {
       beginCustomValidation();
+    } catch (error) { showToast(error.message); }
+  });
+  uiReview.stars.querySelectorAll('[data-review-rating]').forEach(button => button.addEventListener('click', () => selectReviewRating(button.dataset.reviewRating)));
+  uiReview.form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (!activeReviewMap || activeReviewRating < 1) return;
+    try {
+      const rating = CustomMapStore.addReview(activeReviewMap, { rating: activeReviewRating, text: uiReview.text.value, runId: activeRunId });
+      if (role === 'guest' && actions && hostId) {
+        actions.control.send({
+          type: 'customReview', mapCode: CustomMapStore.serialize(activeReviewMap), rating: activeReviewRating,
+          text: uiReview.text.value, runId: activeRunId
+        }, { target: hostId });
+      }
+      uiReview.thanks.textContent = `평가가 저장되었습니다${role === 'guest' ? ' · 방장에게도 전달됨' : ''} · 평균 ${rating.average.toFixed(1)} (${rating.count}명)`;
+      uiReview.submit.disabled = true;
+      refreshCustomUi();
     } catch (error) { showToast(error.message); }
   });
   addEventListener('keydown', event => {

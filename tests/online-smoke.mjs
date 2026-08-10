@@ -127,17 +127,16 @@ try {
     window.testOnlineCustomMap=CustomMapStore.registerVerified(draft,{fullClear:true,creatorTest:true,runId:'online-map-proof'});
   })()`);
   await Promise.all([
-    host.evaluate(`OnlineSession.openChannel(window.testOnlineCustomMap); true`),
+    host.evaluate(`OnlineSession.openChannel(); true`),
     guest.evaluate(`OnlineSession.openChannel(); true`)
   ]);
   await waitFor(host, `document.getElementById('networkStatusText').textContent.includes('연결')`, 25000, 'host online module');
   await waitFor(guest, `document.getElementById('networkStatusText').textContent.includes('연결')`, 25000, 'guest online module');
 
-  await host.evaluate(`document.getElementById('createRoomButton').click(); document.getElementById('roomCapacity').value='2'; document.querySelector('input[name="roomVisibility"][value="public"]').click(); document.getElementById('createRoomForm').requestSubmit()`);
+  await host.evaluate(`document.getElementById('createRoomButton').click(); document.getElementById('roomCapacity').value='2'; document.getElementById('roomCourse').value='3'; document.getElementById('roomCourse').dispatchEvent(new Event('change')); document.querySelector('input[name="roomVisibility"][value="public"]').click(); document.getElementById('createRoomForm').requestSubmit()`);
   await waitFor(host, `OnlineSession.debug().role === 'host' && OnlineSession.debug().roomCode.length === 4`, 15000, 'host room creation');
   const code = await host.evaluate(`OnlineSession.debug().roomCode`);
-  await waitFor(guest, `OnlineSession.debug().publicRooms.some(room => room.code === '${code}')`, 6000, 'public room advertisement');
-  await guest.evaluate(`document.querySelector('[data-join-room="${code}"]').click()`);
+  await guest.evaluate(`document.getElementById('findRoomButton').click(); document.getElementById('roomCodeInput').value='${code}'; document.getElementById('findRoomForm').requestSubmit()`);
   try {
     await waitFor(guest, `OnlineSession.debug().role === 'guest' && OnlineSession.debug().roster.length === 2`, 45000, 'guest room join');
   } catch (error) {
@@ -152,8 +151,8 @@ try {
   await host.evaluate(`document.getElementById('hostStartButton').click()`);
   await waitFor(host, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing'`, 12000, 'host game start');
   await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing'`, 20000, 'guest game start');
-  const guestCustom = await guest.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
-  if (guestCustom.courseName !== 'ONLINE GRID' || guestCustom.obstacleCounts.pillars !== 1 || guestCustom.obstacleCounts.rotors !== 1 || guestCustom.obstacleCounts.lasers !== 1 || !guestCustom.courseValidation.exit) throw new Error(`Authored custom-map layout was not synchronized (${JSON.stringify(guestCustom.obstacleCounts)}).`);
+  const guestRound = await guest.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`);
+  if (guestRound.selectedMap !== 3 || guestRound.courseName !== '레이저 격납고' || guestRound.obstacleCounts.lasers < 6 || !guestRound.courseValidation.exit) throw new Error(`Selected room round was not synchronized (${JSON.stringify({map:guestRound.selectedMap,name:guestRound.courseName,obstacles:guestRound.obstacleCounts})}).`);
   await host.evaluate(`startCountdown=0`);
   await guest.evaluate(`dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD'})); OnlineSession.tick(.04)`);
   await waitFor(host, `OnlineSession.debug().remoteInputs.some(item => item[0] === 1 && item[1].x > .9)`, 6000, 'remote input delivery');
@@ -173,9 +172,33 @@ try {
   await host.evaluate(`players[1].lastGroundX=1500; players[1].lastGroundY=800; downPlayer(players[1],'online-timeout'); beginReviveChoice(players[1],players[0]); players[1].reviveChoiceRemaining=.02; updateGame(.03)`);
   const timeoutRevive = await host.evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().players[1]`);
   if (timeoutRevive.downed || timeoutRevive.reviveChoice !== 'checkpoint') throw new Error(`Revive timeout did not choose the safe checkpoint (${JSON.stringify(timeoutRevive)}).`);
+  await guest.evaluate(`OnlineSession.leaveRoom(false)`);
+  await waitFor(host, `window.__SLIP_OUT_DEBUG__.snapshot().players[1].disconnected && !document.getElementById('playerChip1') && OnlineSession.debug().roster.length === 1`, 12000, 'departed player removal');
+  const departureToast = await host.evaluate(`document.getElementById('toast').textContent`);
+  if (!departureToast.includes('P2') || !departureToast.includes('나갔습니다')) throw new Error(`Player departure notice was not shown (${departureToast}).`);
+
+  await host.evaluate(`OnlineSession.leaveToMenu()`);
+  await guest.evaluate(`returnToMenu()`);
+  await Promise.all([
+    host.evaluate(`OnlineSession.openChannel(window.testOnlineCustomMap)`),
+    guest.evaluate(`OnlineSession.openChannel()`)
+  ]);
+  await host.evaluate(`document.getElementById('createRoomButton').click(); document.getElementById('roomCapacity').value='2'; document.getElementById('createRoomForm').requestSubmit()`);
+  await waitFor(host, `OnlineSession.debug().role === 'host' && OnlineSession.debug().roomCode.length === 4`, 15000, 'custom host room creation');
+  const customCode = await host.evaluate(`OnlineSession.debug().roomCode`);
+  await guest.evaluate(`document.getElementById('findRoomButton').click(); document.getElementById('roomCodeInput').value='${customCode}'; document.getElementById('findRoomForm').requestSubmit()`);
+  await waitFor(guest, `OnlineSession.debug().role === 'guest' && OnlineSession.debug().roster.length === 2`, 15000, 'custom guest room join');
+  await waitFor(host, `OnlineSession.debug().roster.length === 2`, 15000, 'custom host roster');
+  const hostReviewCount = await host.evaluate(`CustomMapStore.getRating(window.testOnlineCustomMap).count`);
+  await host.evaluate(`document.getElementById('hostStartButton').click()`);
+  await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'playing' && window.__SLIP_OUT_DEBUG__.snapshot().courseName === 'ONLINE GRID'`, 15000, 'custom map synchronization');
+  await host.evaluate(`startCountdown=0; players.forEach((player,index)=>{ player.escaped=true; player.finishPlace=index+1; player.finishTime=runTime; }); escapeOrder=players.map(player=>player.id); finishRun(true)`);
+  await waitFor(guest, `window.__SLIP_OUT_DEBUG__.snapshot().state === 'results' && !document.getElementById('customReviewForm').classList.contains('is-hidden')`, 12000, 'guest custom review prompt');
+  await guest.evaluate(`document.querySelector('[data-review-rating="4"]').click(); document.getElementById('customReviewText').value='멀티 평가 전달'; document.getElementById('customReviewForm').requestSubmit()`);
+  await waitFor(host, `CustomMapStore.getRating(window.testOnlineCustomMap).count > ${hostReviewCount}`, 12000, 'P2P custom review delivery');
   if (host.errors.length || guest.errors.length) throw new Error(`Browser errors: ${[...host.errors, ...guest.errors].join(' | ')}`);
 
-  console.log(JSON.stringify({ ok: true, transport: 'deterministic-browser-mock', codeLength: code.length, peers: 2, authoredCustomMapSynced: true, remoteInput: true, hostAuthoritative: true, reviveContactFeedback: true, reviveCountdown: 5, playerOwnedRevive: revive, timeoutFallback: timeoutRevive.reviveChoice }));
+  console.log(JSON.stringify({ ok: true, transport: 'deterministic-browser-mock', codeLength: code.length, peers: 2, selectedRoomRound: guestRound.selectedMap + 1, remoteInput: true, hostAuthoritative: true, reviveContactFeedback: true, reviveCountdown: 5, playerOwnedRevive: revive, timeoutFallback: timeoutRevive.reviveChoice, departedPlayerRemoved: true, authoredCustomMapSynced: true, p2pReviewDelivered: true }));
 } finally {
   await Promise.race([host.call('Browser.close').catch(() => {}), sleep(3000)]);
   host.close(); guest.close();

@@ -27,7 +27,10 @@ function loop(timestamp) {
     camera.x = 950; camera.y = 800; camera.zoom = .82;
     sound.tone(360 + selectedMap * 85, .1, 'triangle', .018, 500 + selectedMap * 90);
   }));
-  $('startButton').addEventListener('click', () => { selectedPlayers = 1; startGame(); });
+  $('startButton').addEventListener('click', requestSinglePlayerStart);
+  $('tutorialButton').addEventListener('click', showTutorialIntro);
+  $('startTutorialButton').addEventListener('click', beginTutorial);
+  $('skipTutorialButton').addEventListener('click', skipTutorial);
   $('resumeButton').addEventListener('click', togglePause);
   $('restartButton').addEventListener('click', () => OnlineSession.isOnlineRun() ? showToast('온라인 런은 방장이 로비에서 다시 시작할 수 있습니다.') : startGame());
   $('menuButton').addEventListener('click', () => OnlineSession.isOnlineRun() ? OnlineSession.handleMenu() : returnToMenu());
@@ -73,11 +76,12 @@ function loop(timestamp) {
         mobileInput: { ...mobileInput },
         escapeOrder: [...escapeOrder], controls: controlMaps.map(map => ({ ...map })),
         online: OnlineSession.debug(), customMaps: CustomMapStore.getStatus(),
+        tutorial: { active: tutorialSession.active, finishing: tutorialSession.finishing, completed: tutorialCompleted(), progress: { ...tutorialSession.progress } },
         players: players.map(p => ({
           id: p.id, x: p.x, y: p.y, vx: p.vx, vy: p.vy, hp: p.hp,
           jumpCooldown: p.jumpCooldown, jumpCooldownMax: p.jumpCooldownMax,
           boostCooldown: p.boostCooldown, boostCooldownMax: p.boostCooldownMax,
-          downed: p.downed, escaped: p.escaped, finishPlace: p.finishPlace, finishTime: p.finishTime,
+          downed: p.downed, escaped: p.escaped, disconnected: !!p.disconnected, finishPlace: p.finishPlace, finishTime: p.finishTime,
           deathCount: p.deathCount, awaitingReviveChoice: p.awaitingReviveChoice,
           reviveChoiceRemaining: p.reviveChoiceRemaining, reviveChoice: p.reviveChoice
         }))
@@ -91,4 +95,5 @@ function loop(timestamp) {
   updateMobileVisibility();
   configureCourse(0);
   resetDynamics();
+  initializeTutorial();
   requestAnimationFrame(loop);

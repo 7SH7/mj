@@ -73,6 +73,21 @@ try {
   assert(await evaluate(`document.querySelectorAll('[data-map]').length === 5`), 'Five-map selector was not rendered.');
   assert(await evaluate(`document.querySelectorAll('[data-players]').length === 0 && !!document.getElementById('channelButton')`), 'Legacy multiplayer count selector was not replaced by the channel entry.');
   assert(await evaluate(`!!document.getElementById('publicRoomList') && !!document.getElementById('createRoomForm') && !!document.getElementById('findRoomForm')`), 'Online channel browser UI is incomplete.');
+  assert(await evaluate(`!!document.getElementById('roomCourse')`), 'Room course selector is missing.');
+  await evaluate(`OnlineSession.openCreateForm(); document.getElementById('roomCourse').value='3'; document.getElementById('roomCourse').dispatchEvent(new Event('change'))`);
+  assert(await evaluate(`document.getElementById('createMapLabel').textContent.includes('04') && document.getElementById('createMapLabel').textContent.includes('레이저')`), 'Room course selector did not update the round settings.');
+  await evaluate(`document.querySelector('[data-channel-back]').click()`);
+
+  await evaluate(`localStorage.removeItem('slip-out-tutorial-complete-v1'); initializeTutorial()`);
+  assert(await evaluate(`document.getElementById('tutorialScreen').classList.contains('is-visible')`), 'First-run tutorial did not open.');
+  await evaluate(`document.getElementById('startTutorialButton').click(); startCountdown=0; ['KeyD','Space','ShiftLeft','KeyE'].forEach(code => dispatchEvent(new KeyboardEvent('keydown',{code})))`);
+  await sleep(180);
+  await evaluate(`['KeyD','Space','ShiftLeft','KeyE'].forEach(code => dispatchEvent(new KeyboardEvent('keyup',{code})))`);
+  assert(await evaluate(`Object.values(window.__SLIP_OUT_DEBUG__.snapshot().tutorial.progress).every(Boolean)`), 'Tutorial did not recognize all four controls.');
+  assert(await evaluate(`document.querySelectorAll('#tutorialCoach [data-tutorial-step].is-done').length === 4`), 'Tutorial checklist did not complete.');
+  await sleep(1350);
+  assert(await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().tutorial.completed && !window.__SLIP_OUT_DEBUG__.snapshot().tutorial.active`), 'Tutorial completion was not saved.');
+  await evaluate(`dispatchEvent(new KeyboardEvent('keydown', {code:'Escape'})); dispatchEvent(new KeyboardEvent('keyup', {code:'Escape'})); document.getElementById('menuButton').click()`);
 
   const mapProfiles = [];
   for (let mapIndex = 0; mapIndex < 5; mapIndex++) {
@@ -109,17 +124,22 @@ try {
     document.getElementById('customMapName').value='SMOKE LAB'; document.getElementById('customMapDifficulty').value='3';
     const canvas=document.getElementById('customMapEditor'); const rect=canvas.getBoundingClientRect();
     const place=(tool,x,y)=>{ document.querySelector('[data-editor-tool="'+tool+'"]').click(); canvas.dispatchEvent(new PointerEvent('pointerdown',{clientX:rect.left+x/8600*rect.width,clientY:rect.top+y/1600*rect.height,button:0,bubbles:true})); };
-    place('spawn',400,800); place('exit',8200,800); place('pillar',1800,500); place('rotor',3600,1000); place('laser',5900,800);
+    place('spawn',400,800); place('exit',8200,800); place('floor-safe',2800,800); place('pillar',1800,500); place('rotor',3600,1000); place('laser',5900,800);
     document.getElementById('customMapForm').requestSubmit();
   })()`);
   assert((await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot()`)).state === 'playing', 'Authored custom map did not enter creator test play.');
   assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest}`), 'Uncleared custom map was registered before creator validation.');
   assert(await evaluate(`selectedCustomMap && selectedCustomMap.verified === false`), 'Creator test did not use an unverified draft.');
+  assert(await evaluate(`selectedCustomMap.layout.floors.length === 1 && floors.length === 2 && surfaceAt(2800,800).type === 'safe'`), 'Custom floor patch was not generated with its selected surface type.');
   await evaluate(`startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
   assert(await evaluate(`CustomMapStore.list().length === ${mapCountBeforeTest + 1}`), 'Creator-cleared custom map was not registered.');
   assert(await evaluate(`document.getElementById('resultTitle').textContent === '커스텀 맵 등록 완료'`), 'Custom-map verification result was not shown.');
   const customValidation = await evaluate(`window.__SLIP_OUT_DEBUG__.snapshot().courseValidation`);
   assert(customValidation.checkpoints.every(Boolean) && customValidation.exit, 'Authored custom map has an invalid checkpoint or exit surface.');
+  await evaluate(`document.getElementById('againButton').click(); startCountdown=0; players[0].x=exit.x; players[0].y=exit.y; players[0].exitHold=exitDuration(); escapePlayer(players[0])`);
+  assert(await evaluate(`!document.getElementById('customReviewForm').classList.contains('is-hidden')`), 'Custom-map review prompt was not shown after a verified run.');
+  await evaluate(`document.querySelector('[data-review-rating="5"]').click(); document.getElementById('customReviewText').value='바닥 변화가 재미있어요'; document.getElementById('customReviewForm').requestSubmit()`);
+  assert(await evaluate(`CustomMapStore.getRating(selectedCustomMap).average === 5 && CustomMapStore.getRating(selectedCustomMap).count >= 1`), 'Custom-map rating and review were not stored.');
   await evaluate(`document.getElementById('resultMenuButton').click(); document.querySelector('[data-map="0"]').click()`);
 
   await evaluate(`document.getElementById('startButton').click()`);

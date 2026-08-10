@@ -2,15 +2,19 @@
 
 // SLIP OUT: authored custom-map storage and validation.
 (function exposeCustomMapStore(global) {
-  const VERSION = 2;
+  const VERSION = 3;
   const UNLOCK_CLEAR_COUNT = 3;
   const MAX_MAPS = 40;
   const MAX_NAME_LENGTH = 30;
   const MAX_OBJECTS = 80;
+  const MAX_FLOORS = 64;
+  const MAX_REVIEWS_PER_MAP = 100;
   const MAPS_KEY = 'slip-out-custom-maps-v1';
   const PROGRESS_KEY = 'slip-out-custom-progress-v1';
+  const REVIEWS_KEY = 'slip-out-custom-reviews-v1';
   const WORLD_BOUNDS = { minX: 160, maxX: 8440, minY: 250, maxY: 1350 };
   const OBJECT_TYPES = new Set(['checkpoint', 'pillar', 'bumper', 'rotor', 'shockwave', 'laser', 'gate', 'boost', 'hole', 'enemy']);
+  const FLOOR_TYPES = new Set(['safe', 'ice', 'black']);
   const SAFE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   const status = { storageMode: 'memory', lastStorageError: null };
 
@@ -67,6 +71,17 @@
     return { type: value.type, ...position };
   }
 
+  function normalizeFloor(value) {
+    if (!value || !FLOOR_TYPES.has(value.type) || !finite(value.x) || !finite(value.y) || !finite(value.w) || !finite(value.h)) return null;
+    const w = clampValue(Math.round(Number(value.w)), 200, 1600);
+    const h = clampValue(Math.round(Number(value.h)), 200, 900);
+    return {
+      x: Math.round(clampValue(Number(value.x), 80, 8520 - w)),
+      y: Math.round(clampValue(Number(value.y), 180, 1420 - h)),
+      w, h, type: value.type, zone: 0
+    };
+  }
+
   function normalizeLayout(value) {
     if (!value || typeof value !== 'object') return null;
     const spawn = point(value.spawn);
@@ -74,7 +89,8 @@
     if (!spawn || !exitPoint) return null;
     const exit = { ...exitPoint, r: clampValue(Math.round(Number(value.exit.r) || 118), 90, 145) };
     const objects = Array.isArray(value.objects) ? value.objects.map(normalizeObject).filter(Boolean).slice(0, MAX_OBJECTS) : [];
-    return { spawn, exit, objects };
+    const floors = Array.isArray(value.floors) ? value.floors.map(normalizeFloor).filter(Boolean).slice(0, MAX_FLOORS) : [];
+    return { spawn, exit, floors, objects };
   }
 
   function legacyLayout(map) {
@@ -84,7 +100,7 @@
     for (let index = 0; index < difficulty + 2; index++) {
       objects.push({ type: index % 3 === 0 ? 'rotor' : index % 3 === 1 ? 'bumper' : 'pillar', x: 1500 + index * (5300 / (difficulty + 1)), y: index % 2 ? 1050 : 550 });
     }
-    return { spawn: { x: 430, y: 800 }, exit: { x: 8220, y: 800, r: 118 }, objects };
+    return { spawn: { x: 430, y: 800 }, exit: { x: 8220, y: 800, r: 118 }, floors: [], objects };
   }
 
   function normalizedMap(value, options = {}) {
@@ -129,9 +145,26 @@
 
   let progress = normalizeProgress(storageRead(PROGRESS_KEY, { fullClears: 0, clearedRuns: [] }));
   let maps = normalizeMaps(storageRead(MAPS_KEY, []));
+  function normalizeReview(value) {
+    if (!value || !Number.isInteger(Number(value.rating)) || Number(value.rating) < 1 || Number(value.rating) > 5) return null;
+    const createdAt = typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt)) ? new Date(value.createdAt).toISOString() : new Date().toISOString();
+    const text = typeof value.text === 'string' ? value.text.trim().slice(0, 120) : '';
+    const runId = typeof value.runId === 'string' ? value.runId.trim().slice(0, 80) : '';
+    return { rating: Number(value.rating), text, runId, createdAt };
+  }
+  function normalizeReviews(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).map(([code, items]) => [
+      String(code).slice(0, 12),
+      Array.isArray(items) ? items.map(normalizeReview).filter(Boolean).slice(-MAX_REVIEWS_PER_MAP) : []
+    ]).filter(([, items]) => items.length));
+  }
+  let reviews = normalizeReviews(storageRead(REVIEWS_KEY, {}));
   storageWrite(MAPS_KEY, maps);
+  storageWrite(REVIEWS_KEY, reviews);
   const persistMaps = () => storageWrite(MAPS_KEY, maps);
   const persistProgress = () => storageWrite(PROGRESS_KEY, progress);
+  const persistReviews = () => storageWrite(REVIEWS_KEY, reviews);
   const isUnlocked = () => progress.fullClears >= UNLOCK_CLEAR_COUNT;
   const unlockProgress = () => ({ fullClears: progress.fullClears, requiredClears: UNLOCK_CLEAR_COUNT, remainingClears: Math.max(0, UNLOCK_CLEAR_COUNT - progress.fullClears), unlocked: isUnlocked() });
 
@@ -214,7 +247,9 @@
   function serialize(mapValue) {
     const map = typeof mapValue === 'string' ? get(mapValue) : normalizedMap(mapValue);
     if (!map) throw new TypeError('공유할 수 없는 커스텀 맵입니다.');
-    let value = hashText(JSON.stringify({ name: map.name, difficulty: map.difficulty, layout: map.layout }));
+    const layout = { spawn: map.layout.spawn, exit: map.layout.exit, objects: map.layout.objects };
+    if (map.layout.floors?.length) layout.floors = map.layout.floors;
+    let value = hashText(JSON.stringify({ name: map.name, difficulty: map.difficulty, layout }));
     let code = '';
     for (let index = 0; index < 6; index++) { code = SAFE_ALPHABET[value & 31] + code; value >>>= 5; }
     return code;
@@ -224,6 +259,33 @@
     const normalizedCode = String(code || '').trim().toUpperCase();
     const found = maps.find(map => serialize(map) === normalizedCode);
     return found ? copy(found) : null;
+  }
+
+  function reviewCode(mapValue) {
+    const map = typeof mapValue === 'string' ? (get(mapValue) || deserialize(mapValue)) : normalizedMap(mapValue);
+    if (!map) throw new TypeError('평가할 수 없는 커스텀 맵입니다.');
+    return serialize(map);
+  }
+
+  function getRating(mapValue) {
+    let code;
+    try { code = reviewCode(mapValue); } catch { return { average: 0, count: 0, reviews: [] }; }
+    const items = reviews[code] || [];
+    const average = items.length ? items.reduce((sum, item) => sum + item.rating, 0) / items.length : 0;
+    return { average: Number(average.toFixed(1)), count: items.length, reviews: items.slice().reverse().map(copy) };
+  }
+
+  function addReview(mapValue, input = {}) {
+    const code = reviewCode(mapValue);
+    const review = normalizeReview({ ...input, createdAt: new Date().toISOString() });
+    if (!review) throw new TypeError('별점은 1점부터 5점까지 선택해 주세요.');
+    const items = reviews[code] || [];
+    const sameRun = review.runId ? items.findIndex(item => item.runId === review.runId) : -1;
+    if (sameRun >= 0) items[sameRun] = review;
+    else items.push(review);
+    reviews[code] = items.slice(-MAX_REVIEWS_PER_MAP);
+    persistReviews();
+    return getRating(mapValue);
   }
 
   function generate(mapValue) {
@@ -249,19 +311,21 @@
     checkpoints.sort((a, b) => a.x - b.x).forEach((item, index) => { item.zone = Math.min(index, 4); });
     return {
       kind: 'custom', version: VERSION, map: copy(map), code: serialize(map),
-      floors: [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }],
+      floors: [{ x: 80, y: 180, w: 8440, h: 1240, type: 'ice', zone: 0 }, ...copyList(map.layout.floors || [])],
       checkpoints, exit: copy(map.layout.exit), hazards, enemies,
       rules: { enemySpeedMultiplier: Number((.9 + difficulty * .1).toFixed(2)), hazardSpeedMultiplier: Number((.92 + difficulty * .08).toFixed(2)) }
     };
   }
 
+  const copyList = value => value.map(item => ({ ...item }));
   const validateMap = value => normalizedMap(value) !== null;
   const getStatus = () => ({ ...status, version: VERSION, mapCount: maps.length, maxMaps: MAX_MAPS, ...unlockProgress() });
 
   global.CustomMapStore = Object.freeze({
-    VERSION, UNLOCK_CLEAR_COUNT, SAFE_ALPHABET, WORLD_BOUNDS, MAX_OBJECTS,
+    VERSION, UNLOCK_CLEAR_COUNT, SAFE_ALPHABET, WORLD_BOUNDS, MAX_OBJECTS, MAX_FLOORS,
     getStatus, getUnlockProgress: unlockProgress, isUnlocked, recordFullClear,
     recordResult: result => result?.fullClear === true ? recordFullClear(result.runId) : { ...unlockProgress(), counted: false, newlyUnlocked: false },
-    list, get, create, createDraft, registerVerified, update, remove, validateMap, validateLayout, serialize, deserialize, generate
+    list, get, create, createDraft, registerVerified, update, remove, validateMap, validateLayout, serialize, deserialize, generate,
+    getRating, addReview
   });
 })(typeof window !== 'undefined' ? window : globalThis);

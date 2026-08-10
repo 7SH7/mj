@@ -84,7 +84,7 @@ const keys = new Set();
     keys.add(event.code);
     if (event.code === 'Escape' && (state === 'playing' || state === 'paused')) togglePause();
     else if (event.code === 'Escape' && state === 'settings') closeSettings();
-    if (event.code === 'Enter' && state === 'menu') { selectedPlayers = 1; startGame(); }
+    if (event.code === 'Enter' && state === 'menu') requestSinglePlayerStart();
     else if (event.code === 'Enter' && state === 'results') {
       if (window.OnlineSession?.isOnlineRun()) window.OnlineSession.handleAgain();
       else startGame();

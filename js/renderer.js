@@ -276,7 +276,7 @@ function drawBackground() {
 
   function drawTrajectory(player) {
     const surface = surfaceAt(player.x, player.y);
-    if (selectedMode === 'extreme' || surface?.type === 'black' || player.downed || player.escaped) return;
+    if (player.disconnected || selectedMode === 'extreme' || surface?.type === 'black' || player.downed || player.escaped) return;
     let x = player.x, y = player.y, vx = player.vx, vy = player.vy;
     ctx.save(); ctx.fillStyle = rgba(player.color, .28);
     for (let i = 0; i < 9; i++) {
@@ -287,7 +287,7 @@ function drawBackground() {
   }
 
   function drawPlayer(player) {
-    if (player.downed || player.escaped) return;
+    if (player.disconnected || player.downed || player.escaped) return;
     for (let i = 0; i < player.trail.length; i++) {
       const t = player.trail[i]; if (t.life <= 0) continue;
       ctx.globalAlpha = t.life * .22;
@@ -317,7 +317,7 @@ function drawBackground() {
   }
 
   function drawCore(player) {
-    if (!player.downed) return;
+    if (player.disconnected || !player.downed) return;
     const pulse = Math.sin(worldTime * 5 + player.id) * 7;
     const linked = player.awaitingReviveChoice;
     const coreColor = linked ? '#b4ff62' : player.color;
@@ -345,7 +345,9 @@ function drawBackground() {
   }
 
   function drawWorldLabels() {
-    const positions = selectedCustomMap
+    const positions = tutorialSession.active
+      ? [430, 820, 1170, 1530, 1940]
+      : selectedCustomMap
       ? Array.from({ length: 5 }, (_, index) => lerp(selectedCustomMap.layout.spawn.x, selectedCustomMap.layout.exit.x, index / 4))
       : [600, 3150, 4800, 6400, 7750];
     ctx.save(); ctx.textAlign = 'center';
@@ -355,6 +357,28 @@ function drawBackground() {
       ctx.fillStyle = 'rgba(166,224,241,.22)'; ctx.font = '600 13px "IBM Plex Mono", monospace';
       ctx.fillText(currentCourse.zoneNames[i].toUpperCase(), x, 115);
     });
+    ctx.restore();
+  }
+
+  function drawTutorialFloorGuide() {
+    if (!tutorialSession.active) return;
+    const controls = controlMaps[0];
+    const guides = [
+      { x: 430, y: 650, title: `${keyLabel(controls.up)} ${keyLabel(controls.left)} ${keyLabel(controls.down)} ${keyLabel(controls.right)}`, body: '이동 · 조향', done: tutorialSession.progress.move },
+      { x: 820, y: 950, title: keyLabel(controls.jump), body: '점프', done: tutorialSession.progress.jump },
+      { x: 1170, y: 650, title: keyLabel(controls.boost), body: '부스터', done: tutorialSession.progress.boost },
+      { x: 1530, y: 950, title: keyLabel(controls.brake), body: '브레이크', done: tutorialSession.progress.brake }
+    ];
+    ctx.save(); ctx.textAlign = 'center';
+    for (const guide of guides) {
+      ctx.strokeStyle = guide.done ? 'rgba(180,255,98,.8)' : 'rgba(84,245,255,.55)';
+      ctx.fillStyle = guide.done ? 'rgba(180,255,98,.12)' : 'rgba(2,14,23,.56)';
+      ctx.lineWidth = 4; roundedRect(guide.x - 145, guide.y - 74, 290, 148, 18); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = guide.done ? '#b4ff62' : '#e8fcff';
+      ctx.font = '800 26px "IBM Plex Mono", monospace'; ctx.fillText(guide.done ? '✓ COMPLETE' : guide.title, guide.x, guide.y - 8);
+      ctx.fillStyle = guide.done ? 'rgba(180,255,98,.72)' : 'rgba(166,224,241,.78)';
+      ctx.font = '700 15px "IBM Plex Mono", monospace'; ctx.fillText(guide.body, guide.x, guide.y + 30);
+    }
     ctx.restore();
   }
 
@@ -368,6 +392,7 @@ function drawBackground() {
     beginWorldTransform();
     drawWorldLabels();
     for (const floor of floors) drawFloor(floor);
+    drawTutorialFloorGuide();
     for (const hole of holes) drawHole(hole);
     drawCollapseTiles();
     drawPads();

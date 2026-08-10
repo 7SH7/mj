@@ -292,6 +292,31 @@ const BASE_FLOORS = [
     return generated;
   }
 
+  function configureTutorialCourse() {
+    selectedCustomMap = null;
+    currentCourse = {
+      ...COURSE_PRESETS[0],
+      name: '관성 조작 연습장', short: 'TRAINING', difficulty: 1, accent: '#54f5ff',
+      description: '이동·점프·부스터·브레이크를 직접 익히는 첫 플레이 연습장',
+      brief: '바닥 안내를 따라 네 가지 기본 조작을 모두 사용하세요',
+      zoneNames: ['이동', '점프', '부스터', '브레이크', '준비 완료'],
+      objectives: ['WASD 또는 방향키로 움직여 보세요', '점프 키를 눌러 보세요', '부스터를 사용해 가속하세요', '브레이크로 관성을 줄이세요', '첫 라운드를 시작할 준비가 끝났습니다'],
+      enemies: []
+    };
+    floors = [
+      { x: 80, y: 260, w: 760, h: 1080, type: 'safe', zone: 0 },
+      { x: 760, y: 260, w: 720, h: 1080, type: 'ice', zone: 1 },
+      { x: 1400, y: 260, w: 800, h: 1080, type: 'black', zone: 2 }
+    ];
+    holes = []; boostPads = []; slowPads = [];
+    checkpoints = [{ x: 430, y: 800, zone: 0 }];
+    pillars = []; rotors = []; movers = []; gates = []; launchers = []; collapseTiles = [];
+    winds = []; shockwaves = []; lasers = []; bumpers = [];
+    exit = { x: 2050, y: 800, r: 118 };
+    document.documentElement.style.setProperty('--map-accent', currentCourse.accent);
+    if (ui.mapValue) ui.mapValue.textContent = 'TR';
+  }
+
   function configureSelectedCourse() {
     return selectedCustomMap ? configureCustomCourse(selectedCustomMap) : configureCourse(selectedMap);
   }

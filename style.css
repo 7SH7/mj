@@ -367,13 +367,31 @@ kbd, .keycap {
 @keyframes revive-contact-pulse { to { filter: brightness(1.24); } }
 
 .modal-screen { display: grid; place-items: center; background: rgba(1,5,11,.62); backdrop-filter: blur(7px); }
-.modal-card, .result-card, .settings-card { width: min(420px, calc(100vw - 32px)); padding: 36px; border-radius: 8px; text-align: center; }
+.modal-card, .result-card, .settings-card, .tutorial-card { width: min(420px, calc(100vw - 32px)); padding: 36px; border-radius: 8px; text-align: center; }
 .modal-card h2, .result-card h2 { margin: 6px 0 10px; font: 900 42px "Arial Black", Impact, sans-serif; }
 .modal-card p:not(.eyebrow) { color: var(--muted); font-size: 13px; }
 .text-button { width: 100%; margin-top: 8px; padding: 9px; border: 0; background: transparent; color: #7d96a9; font-size: 11px; cursor: pointer; }
 .text-button:hover { color: var(--ink); }
 
-.result-card { width: min(480px, calc(100vw - 32px)); }
+.result-card { width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 28px); overflow-y: auto; }
+
+.tutorial-replay-button { margin-top: 2px; }
+.tutorial-card { width: min(590px, calc(100vw - 30px)); text-align: left; }
+.tutorial-card h2 { margin: 7px 0 12px; color: #effcff; font: 900 clamp(30px, 5vw, 48px)/.98 "Arial Black", Impact, sans-serif; letter-spacing: -.04em; }
+.tutorial-copy, .tutorial-note { color: #8ea7b6; font-size: 11px; line-height: 1.7; }
+.tutorial-copy b { color: var(--cyan); }
+.tutorial-preview { margin: 18px 0 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.tutorial-preview span { min-height: 76px; padding: 11px 7px; display: grid; place-items: center; align-content: center; gap: 9px; border: 1px solid rgba(84,245,255,.16); background: rgba(4,17,28,.68); text-align: center; }
+.tutorial-preview kbd { color: var(--cyan); font: 700 10px "IBM Plex Mono", monospace; }
+.tutorial-preview b { color: #b8ced8; font-size: 9px; }
+.tutorial-card .primary-button { margin-top: 17px; }
+.tutorial-coach { position: fixed; z-index: 16; left: 50%; bottom: 76px; width: min(570px, calc(100vw - 28px)); padding: 12px 15px; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, 12px); border-color: rgba(84,245,255,.34); transition: .18s ease; }
+.tutorial-coach.is-visible { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.tutorial-coach > small { display: block; color: var(--cyan); font: 700 8px "IBM Plex Mono", monospace; letter-spacing: .16em; }
+.tutorial-coach > b { display: block; margin-top: 3px; color: #dceef3; font-size: 10px; }
+.tutorial-coach > div { margin-top: 9px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.tutorial-coach span { padding: 7px 5px; border: 1px solid rgba(255,255,255,.08); color: #708897; font: 600 8px "IBM Plex Mono", monospace; text-align: center; }
+.tutorial-coach span.is-done { border-color: rgba(180,255,98,.42); color: var(--lime); background: rgba(180,255,98,.07); }
 .result-summary { color: #8ca4b6; font-size: 12px; }
 .score-line { margin: 24px 0 16px; padding: 18px; border: 1px solid rgba(84,245,255,.25); background: rgba(23,78,91,.2); }
 .score-line small, .score-line b { display: block; }
@@ -511,6 +529,10 @@ kbd, .keycap {
 .custom-editor-tools .tool-boost { width: 24px; height: 12px; transform: skewX(-18deg); color: #ffd85a; }
 .custom-editor-tools .tool-hole { color: #374856; background: #01050a; }
 .custom-editor-tools .tool-enemy { color: #ff4d78; background: rgba(255,77,120,.16); }
+.custom-editor-tools .tool-floor-safe, .custom-editor-tools .tool-floor-ice, .custom-editor-tools .tool-floor-black { width: 25px; height: 15px; border-radius: 2px; }
+.custom-editor-tools .tool-floor-safe { color: #65e6b7; background: rgba(101,230,183,.22); }
+.custom-editor-tools .tool-floor-ice { color: #54f5ff; background: rgba(84,245,255,.19); }
+.custom-editor-tools .tool-floor-black { color: #6d7d94; background: rgba(14,17,29,.92); }
 .custom-editor-tools .tool-erase { border: 0; border-bottom: 5px solid #a4b2ba; transform: rotate(-35deg); }
 .custom-editor-stage { margin-top: 7px; overflow: hidden; border: 1px solid rgba(84,245,255,.25); border-radius: 4px; background: #030a12; }
 #customMapEditor { width: 100%; height: auto; min-height: 260px; display: block; cursor: crosshair; touch-action: none; }
@@ -527,10 +549,26 @@ kbd, .keycap {
 .custom-map-info b, .custom-map-info small { display: block; }
 .custom-map-info b { color: #d4e7ef; font-size: 11px; }
 .custom-map-info small { margin-top: 5px; color: #617b8e; font: 500 8px "IBM Plex Mono", monospace; }
+.custom-map-rating { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.custom-map-rating strong { color: #ffd85a; font: 700 11px "IBM Plex Mono", monospace; letter-spacing: .03em; }
+.custom-map-rating span { color: #78909f; font-size: 8px; }
+.custom-map-review-quote { margin: 6px 0 0; color: #8aa0ad; font-size: 9px; line-height: 1.45; }
 .custom-map-actions { display: flex; gap: 5px; align-items: center; }
 .custom-map-actions button { min-height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.1); border-radius: 3px; background: rgba(9,25,37,.72); color: #94abba; font-size: 8px; cursor: pointer; }
 .custom-map-actions button:hover { border-color: var(--cyan); color: var(--cyan); }
 .custom-map-actions .delete-custom { color: #ad6b7c; }
+
+.custom-review-form { margin: 13px 0; padding: 13px; display: grid; gap: 8px; border: 1px solid rgba(255,216,90,.22); background: rgba(37,29,9,.3); text-align: left; }
+.custom-review-form > div:first-child small, .custom-review-form > div:first-child b { display: block; }
+.custom-review-form > div:first-child small { color: #c9a93c; font: 700 7px "IBM Plex Mono", monospace; letter-spacing: .14em; }
+.custom-review-form > div:first-child b { margin-top: 3px; color: #e8edf0; font-size: 10px; }
+.custom-review-stars { display: flex; gap: 4px; }
+.custom-review-stars button { padding: 0; border: 0; background: transparent; color: #6a654d; font-size: 26px; line-height: 1; cursor: pointer; }
+.custom-review-stars button.is-selected { color: #ffd85a; text-shadow: 0 0 10px rgba(255,216,90,.35); }
+.custom-review-form textarea { width: 100%; min-height: 52px; padding: 9px 10px; resize: vertical; border: 1px solid rgba(255,255,255,.1); border-radius: 3px; outline: none; background: rgba(2,8,15,.76); color: #dcecf1; font: 500 9px/1.5 "IBM Plex Mono", monospace; }
+.custom-review-form textarea:focus { border-color: rgba(255,216,90,.5); }
+.custom-review-form .secondary-button { margin: 0; min-height: 34px; }
+.custom-review-thanks { min-height: 12px; margin: 0; color: var(--lime); font-size: 8px; }
 
 .mobile-controls { position: fixed; inset: 0; z-index: 8; display: none; pointer-events: none; touch-action: none; }
 .joystick { position: absolute; left: max(24px, env(safe-area-inset-left)); bottom: max(28px, env(safe-area-inset-bottom)); width: 132px; height: 132px; border-radius: 50%; border: 2px solid rgba(84,245,255,.28); background: radial-gradient(circle, rgba(48,112,130,.24), rgba(4,13,23,.58)); box-shadow: inset 0 0 28px rgba(84,245,255,.08); pointer-events: auto; touch-action: none; }
@@ -570,6 +608,11 @@ kbd, .keycap {
   .player-chip .ability { height: 24px; padding: 6px 5px; font-size: 7px; }
   .player-chip .ability em { font-size: 8px; }
   .settings-card { padding: 25px 20px; }
+  .tutorial-card { padding: 25px 20px; }
+  .tutorial-preview { grid-template-columns: repeat(2, 1fr); }
+  .tutorial-preview span { min-height: 58px; }
+  .tutorial-coach { bottom: 12px; }
+  .tutorial-coach > div { grid-template-columns: repeat(2, 1fr); }
   .key-bindings { grid-template-columns: 1fr; }
   .channel-card, .custom-maps-card { padding: 22px 18px; }
   .play-actions { grid-template-columns: 1fr; }

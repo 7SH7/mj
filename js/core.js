@@ -18,7 +18,8 @@ const canvas = document.getElementById('game');
     reviveChoice: $('reviveChoiceOverlay'), reviveChoicePlayer: $('reviveChoicePlayer'),
     reviveChoiceCountdown: $('reviveChoiceCountdown'),
     mapValue: $('mapValue'), mapDifficulty: $('mapDifficulty'), mapDescription: $('mapDescription'),
-    mapBriefName: $('mapBriefName'), mapBriefDescription: $('mapBriefDescription')
+    mapBriefName: $('mapBriefName'), mapBriefDescription: $('mapBriefDescription'),
+    tutorial: $('tutorialScreen'), tutorialCoach: $('tutorialCoach')
   };
 
   const TAU = Math.PI * 2;
